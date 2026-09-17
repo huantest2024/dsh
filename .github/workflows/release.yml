@@ -1,0 +1,112 @@
+# DSH Desktop 发布流水线：推送 v* 标签（或手动触发）→ Windows/macOS 双平台构建
+# → 全量产物（安装包/便携版/ZIP/dmg + 版本说明）自动发布到 GitHub Releases。
+# mac 未购买开发者签名：CSC_IDENTITY_AUTO_DISCOVERY=false 走 adhoc 签名，
+# 首次打开需右键「打开」或 xattr -cr 清除隔离属性（README 有说明）。
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            build-args: --win --x64
+          - name: macos
+            os: macos-latest
+            build-args: --mac --x64 --arm64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 构建
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.build-args }}
+
+      - name: 复制版本说明进产物目录
+        shell: bash
+        run: node scripts/copy-release-notes.js
+
+      - name: 产物清单
+        shell: bash
+        run: ls -la release/
+
+      - name: 中转构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-${{ matrix.name }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.zip
+            desktop/release/*.dmg
+            desktop/release/版本更新说明*.md
+          if-no-files-found: error
+          retention-days: 3
+
+  release:
+    name: 发布 GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载全部构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 产物清单
+        run: ls -la artifacts/
+
+      - name: 计算发布标签
+        id: tag
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=v$(node -p "require('./desktop/package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 提取本版本更新说明（CHANGELOG 顶部对应小节，缺失则整篇兜底）
+        run: |
+          awk -v ver="${{ steps.tag.outputs.name }}" \
+            'BEGIN{p=0} /^## /{p = index($0, "## " ver "（") == 1} p' \
+            desktop/CHANGELOG.md > artifacts/release-body.md
+          [ -s artifacts/release-body.md ] || cp desktop/CHANGELOG.md artifacts/release-body.md
+
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: DSH Desktop ${{ steps.tag.outputs.name }}
+          body_path: artifacts/release-body.md
+          files: |
+            artifacts/DSH-Desktop-Setup-*.exe
+            artifacts/DSH-Desktop-Portable-*.exe
+            artifacts/DSH-Desktop-Windows-*.zip
+            artifacts/DSH-Desktop-macOS-*.dmg
+            artifacts/DSH-Desktop-macOS-*.zip
+            artifacts/版本更新说明-v*.md

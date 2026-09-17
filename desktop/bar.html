@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>DeepSeek Harness</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    display: flex; align-items: stretch;
+    background: #181818; color: #9aa0a6;
+    font: 12px "Segoe UI", "Microsoft YaHei", sans-serif;
+    user-select: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  /* 拖动窗口改手动实现：CSS app-region 在 Electron 33 + WebContentsView
+     下判定区域会被错误放大/错位——DOM 里只有 #drag 是 drag，OS 层却把徽章/🎨 一并判成
+     HTCAPTION（点击与 hover 全被吞，点徽章变成无反应的「标题栏操作」），且区域不随
+     DOM 重算（CDP 强制样式翻转无效）。该机制反复出事，彻底弃用：
+     #drag 指针按下→捕获→screenX/Y 增量 IPC 给主进程移窗；徽章/主题/窗口控制按钮
+     回归普通元素，不再有任何 HTCAPTION 区域 */
+  #drag { cursor: default; }
+  body.light { background: #f3f3f3; color: #55555a; border-bottom-color: rgba(0, 0, 0, 0.08); }
+  .brand { display: flex; align-items: center; gap: 7px; padding: 0 8px 0 12px; flex: none; }
+  .brand img { width: 16px; height: 16px; display: block; }
+  .brand span { font-size: 12px; }
+
+  /* 版本徽标：点击看版本说明/更新进度；五态配色与页内版一致 */
+  .badge {
+    flex: none;
+    display: inline-flex; align-items: center;
+    padding: 1px 9px; border-radius: 10px; cursor: pointer;
+    font-size: 11px; line-height: 16px; font-family: Consolas, monospace;
+    color: #9aa0a6; background: #2d2d30; border: 1px solid #3c3c3d;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  body.light .badge { color: #5a5a5a; background: #e8e8e8; border-color: #d0d0d0; }
+  .badge:hover { filter: brightness(1.15); }
+  .badge[data-state="available"], .badge[data-state="installing"] {
+    color: #4d86fe; border-color: rgba(77, 134, 254, 0.6); font-weight: 600;
+  }
+  .badge[data-state="installing"] { animation: pulse 1.1s ease-in-out infinite; }
+  .badge[data-state="done"] { color: #6fbf76; border-color: rgba(87, 171, 90, 0.6); }
+  .badge[data-state="failed"] { color: #f07178; border-color: rgba(240, 113, 120, 0.6); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  .spacer { flex: 1; }
+  .btn {
+    flex: none;
+    width: 44px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; border: none; background: transparent; color: inherit;
+    font-family: inherit;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.09); }
+  body.light .btn:hover { background: rgba(0, 0, 0, 0.08); }
+  .btn svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.2; fill: none; }
+  .btn.theme { width: 36px; font-size: 14px; line-height: 1; }
+  .btn.close:hover { background: #e81123; color: #fff; }
+</style>
+</head>
+<body>
+  <div class="brand">
+    <img src="assets/icon.png" alt=""><span>DeepSeek Harness</span>
+    <button class="badge" id="b-badge" data-state="idle" title="点击查看版本说明" hidden></button>
+  </div>
+  <div class="spacer" id="drag"></div>
+  <button class="btn theme" id="b-theme" title="二次元主题设置">🎨</button>
+  <button class="btn" id="b-min" title="最小化">
+    <svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg>
+  </button>
+  <button class="btn" id="b-max" title="最大化 / 还原">
+    <svg viewBox="0 0 16 16">
+      <path id="icon-max" d="M4.5 4.5h7v7h-7z"/>
+      <g id="icon-restore" style="display:none"><path d="M6 3h7v7H6z"/><path d="M3 6h7v7H3z"/></g>
+    </svg>
+  </button>
+  <button class="btn close" id="b-close" title="关闭">
+    <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+  </button>
+<script>
+  var on = function (id, fn) { document.getElementById(id).addEventListener('click', fn) }
+  on('b-min', function () { window.dshBar.action('min') })
+  on('b-max', function () { window.dshBar.action('max') })
+  on('b-close', function () { window.dshBar.action('close') })
+  on('b-theme', function () { window.dshBar.action('theme') })
+  on('b-badge', function () { window.dshBar.openNotes() })
+  // 双击空白拖拽区 = 最大化/还原（标准桌面行为）
+  document.getElementById('drag').addEventListener('dblclick', function () {
+    window.dshBar.action('max')
+  })
+  // 手动拖动窗口：指针捕获后把 screenX/Y 增量发给主进程（窗口移动不影响
+  // screen 坐标，无反馈回路）；maximized 时由主进程先还原再按还原后边界跟随
+  ;(function () {
+    var drag = document.getElementById('drag')
+    var dragging = false
+    drag.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return
+      dragging = true
+      window.__dsx = e.screenX; window.__dsy = e.screenY
+      drag.setPointerCapture(e.pointerId)
+      window.dshBar.dragBegin()
+    })
+    drag.addEventListener('pointermove', function (e) {
+      if (dragging) window.dshBar.dragMove(e.screenX - window.__dsx, e.screenY - window.__dsy)
+    })
+    drag.addEventListener('pointerup', function () { dragging = false; window.dshBar.dragEnd() })
+    drag.addEventListener('pointercancel', function () { dragging = false; window.dshBar.dragEnd() })
+    // 右键弹系统风格窗口菜单（原生标题栏场景由系统弹菜单，自绘顶栏需自行补齐）
+    drag.addEventListener('contextmenu', function (e) {
+      e.preventDefault()
+      window.dshBar.showContextMenu()
+    })
+  })()
+  window.dshBar.onTheme(function (p) {
+    document.body.classList.toggle('light', !p.dark)
+  })
+  window.dshBar.onMaximized(function (m) {
+    document.getElementById('icon-max').style.display = m ? 'none' : ''
+    document.getElementById('icon-restore').style.display = m ? '' : 'none'
+    document.getElementById('b-max').title = m ? '向下还原' : '最大化 / 还原'
+  })
+  /* 版本徽标五态（idle/available/installing/done/failed），主进程 badge-state 驱动 */
+  var badgeState = { state: 'idle' }
+  window.__barApplyBadge = function (p) {
+    badgeState = p || { state: 'idle' }
+    var b = document.getElementById('b-badge')
+    if (!b) return
+    var cur = badgeState.current || ''
+    var v = badgeState.version || ''
+    var s = badgeState.state || 'idle'
+    b.hidden = !cur && s === 'idle'
+    b.dataset.state = s
+    if (s === 'available') {
+      b.textContent = 'v' + cur + ' ↑'
+      b.title = '发现新版本 v' + v + '，点击查看版本说明与更新'
+    } else if (s === 'installing') {
+      b.textContent = '↓ 安装中'
+      b.title = '正在后台安装 v' + v + '…点击查看进度'
+    } else if (s === 'done') {
+      b.textContent = '✓ v' + v
+      b.title = '已安装 v' + v + '，重启后生效；点击查看'
+    } else if (s === 'failed') {
+      b.textContent = '更新失败'
+      b.title = (badgeState.detail || '更新失败') + '；点击查看详情'
+    } else {
+      b.textContent = 'v' + cur
+      b.title = '点击查看版本说明'
+    }
+  }
+  window.dshBar.onBadgeState(function (p) { window.__barApplyBadge(p) })
+</script>
+</body>
+</html>

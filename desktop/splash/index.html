@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>DeepSeek Harness</title>
+<style>
+  :root {
+    --zc-bg: #181818;
+    --zc-panel: #1f1f1f;
+    --zc-border: #2b2b2b;
+    --zc-text: #cccccc;
+    --zc-dim: #8a8a8a;
+    --zc-blue: #4d86fe;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 700px at 75% -10%, rgba(77, 134, 254, 0.10), transparent 60%),
+      radial-gradient(900px 600px at -10% 110%, rgba(255, 138, 180, 0.07), transparent 55%),
+      var(--zc-bg);
+    color: var(--zc-text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  /* 整页过渡容器：退场时整体淡出。主界面同为 #181818 深底，换页无缝衔接 */
+  #stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #stage.leaving { animation: stageOut 0.42s ease forwards; }
+  @keyframes stageOut {
+    to { opacity: 0; transform: scale(1.015); }
+  }
+  .card {
+    text-align: center;
+    padding: 44px 56px;
+    background: var(--zc-panel);
+    border: 1px solid var(--zc-border);
+    border-radius: 16px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+    /* 入场：淡入 + 上浮 */
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+    animation: cardIn 0.55s cubic-bezier(0.22, 0.9, 0.32, 1) 0.05s forwards;
+  }
+  @keyframes cardIn {
+    to { opacity: 1; transform: none; }
+  }
+  .mascot {
+    width: 220px; height: 220px;
+    object-fit: cover;
+    border-radius: 18px;
+    margin-bottom: 22px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--zc-border);
+    animation: floaty 3.2s ease-in-out infinite;
+  }
+  @keyframes floaty {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+  }
+  h1 .accent { color: var(--zc-blue); }
+  #status {
+    font-size: 13px;
+    color: var(--zc-dim);
+    min-height: 20px;
+    margin-bottom: 6px;
+    transition: opacity 0.18s ease;
+  }
+  #elapsed {
+    font-size: 12px;
+    color: var(--zc-blue);
+    font-variant-numeric: tabular-nums;
+    min-height: 18px;
+    margin-bottom: 16px;
+  }
+  .bar {
+    width: 260px; height: 3px;
+    background: var(--zc-border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 0 auto;
+  }
+  .bar::before {
+    content: "";
+    display: block;
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, var(--zc-blue), transparent);
+    animation: sweep 1.4s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+  .hint { margin-top: 18px; font-size: 11px; color: #5a5a5a; }
+  /* 移除 app-region 拖拽条——本页是 contentView 的首屏文档，其整页级
+     drag 区域会并进窗口判定区域且不随后续导航可靠回收，毒化顶栏按钮的点击
+     （徽章 0~1300px 区间被吞，即 calc(100%-140px) 的边界）；启动页仅展示 1.5s，
+     不值得为它保留拖拽 */
+  .ver { color: var(--zc-blue); }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div class="card">
+      <img id="mascot" class="mascot" alt="" draggable="false" />
+      <h1>DeepSeek <span class="accent">Harness</span> <span class="ver" id="ver"></span></h1>
+      <div id="status">正在启动 …</div>
+      <div id="elapsed">0.0 s</div>
+      <div class="bar"></div>
+      <div class="hint">欢迎使用 DeepSeek Harness</div>
+    </div>
+  </div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const gif = params.get('gif');
+  if (gif) document.getElementById('mascot').src = 'file://' + gif.replace(/\\/g, '/');
+  const ver = params.get('ver');
+  if (ver) document.getElementById('ver').textContent = 'v' + ver;
+
+  const statusEl = document.getElementById('status');
+  window.__setStatus = function (text) {
+    if (statusEl.textContent === text) return;
+    statusEl.style.opacity = '0';
+    setTimeout(function () {
+      statusEl.textContent = text;
+      statusEl.style.opacity = '1';
+    }, 160);
+  };
+  window.__setStatus('正在启动 …');
+
+  // 启动耗时计时（从启动页加载完成起算，服务启动通常 10~20s，让等待可感知）
+  const elapsedEl = document.getElementById('elapsed');
+  let t0 = Date.now();
+  let timer = setInterval(function () {
+    elapsedEl.textContent = ((Date.now() - t0) / 1000).toFixed(1) + ' s';
+  }, 100);
+
+  // 主进程在服务就绪、即将加载界面时调用：整页淡出后再换页，避免生硬跳变
+  window.__splashOut = function () {
+    return new Promise(function (resolve) {
+      clearInterval(timer);
+      document.getElementById('stage').classList.add('leaving');
+      setTimeout(resolve, 430);
+    });
+  };
+
+  // 淡出后需要回退重试（预热服务失联转自启动）时，恢复启动页可见并继续计时
+  window.__splashIn = function () {
+    document.getElementById('stage').classList.remove('leaving');
+    t0 = Date.now();
+    timer = setInterval(function () {
+      elapsedEl.textContent = ((Date.now() - t0) / 1000).toFixed(1) + ' s';
+    }, 100);
+  };
+</script>
+</body>
+</html>

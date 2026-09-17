@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>版本说明 — DeepSeek Harness</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #1b1b1f; color: #d4d4d4; font-size: 13px;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none;
+  }
+  header { padding: 16px 22px 12px; border-bottom: 1px solid #2c2c33; flex: none; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  h1 { font-size: 15px; font-weight: 600; color: #fff; flex: 1; }
+  h1 .ver { color: #4d86fe; }
+  button {
+    padding: 6px 16px; border-radius: 6px; border: 1px solid #3a3a42;
+    background: #2b2b31; color: #d4d4d4; cursor: pointer; font-size: 12px; font-family: inherit;
+  }
+  button:hover { background: #35353c; }
+  button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+  button.primary:hover { background: #3d7bf0; }
+  .status { margin-top: 8px; font-size: 12px; color: #a0a0ab; min-height: 16px; }
+  .status .hl { color: #4d86fe; }
+  main { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 22px 18px; }
+  h2.sec { font-size: 13px; color: #fff; margin: 4px 0 8px; }
+  .meta { color: #8a8a94; font-size: 11px; margin-bottom: 8px; }
+  .notes { user-select: text; line-height: 1.65; font-size: 12.5px; }
+  .notes h4 { color: #fff; font-size: 12.5px; margin: 12px 0 4px; }
+  .notes h3 { color: #fff; font-size: 13.5px; margin: 10px 0 4px; }
+  .notes ul { margin: 2px 0 8px 18px; }
+  .notes li { margin: 3px 0; }
+  .notes p { margin: 4px 0; }
+  .notes code {
+    background: #141416; border: 1px solid #2c2c33; border-radius: 3px;
+    padding: 0 4px; font-family: Consolas, monospace; font-size: 11.5px; color: #9cdcfe;
+  }
+  .notes .lnk { color: #4d86fe; }
+  .notes hr { border: none; border-top: 1px solid #2c2c33; margin: 10px 0; }
+  .empty { color: #8a8a94; padding: 18px 0; }
+  details.hist { border: 1px solid #2c2c33; border-radius: 6px; margin-top: 8px; background: #17171a; }
+  details.hist > summary {
+    cursor: pointer; padding: 9px 12px; color: #c8c8d0; font-size: 12.5px; list-style: none;
+  }
+  details.hist > summary::before { content: '▸ '; color: #8a8a94; }
+  details.hist[open] > summary::before { content: '▾ '; }
+  details.hist > summary:hover { color: #fff; }
+  details.hist .item { border-top: 1px solid #242429; padding: 10px 12px; }
+  details.hist .item > summary { cursor: pointer; color: #b8b8c0; font-size: 12px; list-style: none; }
+  details.hist .item > summary::before { content: '▸ '; color: #8a8a94; }
+  details.hist .item[open] > summary::before { content: '▾ '; }
+  details.hist .item > summary:hover { color: #fff; }
+  details.hist .item .ver { color: #4d86fe; font-weight: 600; }
+  details.hist .item .meta { display: inline; margin-left: 8px; }
+  details.hist .item .notes { padding: 6px 2px 2px; }
+  .foot { padding: 10px 22px 14px; border-top: 1px solid #2c2c33; flex: none; display: flex; justify-content: space-between; align-items: center; }
+  .foot .muted { color: #8a8a94; font-size: 11px; }
+  .loading { color: #8a8a94; padding: 14px 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>DeepSeek Harness <span class="ver" id="cur-ver"></span></h1>
+    <button class="primary" id="b-action">检查更新</button>
+  </div>
+  <div class="status" id="status"></div>
+</header>
+<main>
+  <h2 class="sec">当前版本更新说明</h2>
+  <div class="meta" id="cur-meta"></div>
+  <div class="notes" id="cur-notes"><div class="loading">正在获取官方发布说明…</div></div>
+
+  <details class="hist" id="hist" style="display:none">
+    <summary>历史版本更新说明</summary>
+    <div id="hist-list"></div>
+  </details>
+</main>
+<div class="foot">
+  <span class="muted" id="cache-hint"></span>
+  <button id="b-close">关闭</button>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id)
+  const stripTag = (v) => String(v || '').replace(/^dsh-v/, '').replace(/^v/, '')
+
+  /* 官方 release body 是「markdown + 内嵌 h3 标签」的混排，先归一化再转义、按行渲染 */
+  function renderNotes(body) {
+    let t = body || ''
+    const en = t.search(/<h3[^>]*id="en-/)
+    if (en > 0) t = t.slice(0, en)
+    t = t.replace(/^\s*\[[^\]]+\]\(#[^)]*\)\s*\|.*$/m, '')
+    t = t.replace(/<h3[^>]*>/gi, '\n### ').replace(/<\/h3>/gi, '\n')
+         .replace(/<h2[^>]*>/gi, '\n## ').replace(/<\/h2>/gi, '\n')
+         .replace(/<br\s*\/?>/gi, '\n')
+         .replace(/<\/?(strong|em|code|a|span|p)[^>]*>/gi, '')
+    t = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const inline = (s) => s
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, txt, href) =>
+        /^https?:\/\//i.test(href) ? '<span class="lnk">' + txt + '</span>' : txt)
+    let html = '', inList = false
+    const closeList = () => { if (inList) { html += '</ul>'; inList = false } }
+    for (const raw of t.split(/\r?\n/)) {
+      const line = raw.trimEnd()
+      if (/^###\s+/.test(line)) { closeList(); html += '<h4>' + inline(line.replace(/^###\s+/, '')) + '</h4>' }
+      else if (/^##\s+/.test(line)) { closeList(); html += '<h3>' + inline(line.replace(/^##\s+/, '')) + '</h3>' }
+      else if (/^[-*]\s+/.test(line)) { if (!inList) { html += '<ul>'; inList = true } html += '<li>' + inline(line.replace(/^[-*]\s+/, '')) + '</li>' }
+      else if (/^---+$/.test(line.trim())) { closeList(); html += '<hr>' }
+      else if (line.trim() === '') { closeList() }
+      else { closeList(); html += '<p>' + inline(line) + '</p>' }
+    }
+    closeList()
+    return html
+  }
+
+  function notesBlock(r) {
+    const ver = stripTag(r.name || r.tag)
+    const date = (r.publishedAt || '').slice(0, 10)
+    const inner = renderNotes(r.body)
+    return { ver, date, inner }
+  }
+
+  async function init() {
+    const st = await window.dshUpdate.notesState()
+    $('cur-ver').textContent = st.current ? 'v' + st.current : '（版本未知）'
+    refreshAction(st)
+    setInterval(async () => refreshAction(await window.dshUpdate.notesState()), 3000)
+
+    const r = await window.dshUpdate.fetchNotes()
+    if (!r.ok) {
+      $('cur-notes').innerHTML = '<div class="empty">获取发布说明失败：' + (r.error || '未知错误') +
+        '<br>官方地址：https://github.com/deepseek-ai/deepseek-harness/releases</div>'
+      return
+    }
+    if (r.fromCache) {
+      $('cache-hint').textContent = '离线缓存' + (r.fetchedAt ? '（更新于 ' + r.fetchedAt.slice(0, 10) + '）' : '')
+    }
+    const releases = r.releases || []
+    if (!releases.length) {
+      $('cur-notes').innerHTML = '<div class="empty">官方仓库暂无发布说明</div>'
+      return
+    }
+    const cur = releases.find(x => stripTag(x.name) === st.current || stripTag(x.tag) === st.current)
+    if (cur) {
+      const b = notesBlock(cur)
+      $('cur-meta').textContent = (b.date ? '发布于 ' + b.date : '') + (cur.tag ? ' · ' + cur.tag : '')
+      $('cur-notes').innerHTML = b.inner || '<div class="empty">该版本暂无发布说明</div>'
+    } else {
+      $('cur-meta').textContent = '未在官方 Releases 中找到当前版本的说明，以下为最新版本：'
+      const b = notesBlock(releases[0])
+      $('cur-notes').innerHTML = (b.date ? '<div class="meta">' + b.ver + ' · ' + b.date + '</div>' : '') + b.inner
+    }
+
+    const rest = releases.filter(x => x !== cur)
+    if (rest.length) {
+      $('hist').style.display = ''
+      $('hist-list').innerHTML = rest.map((x, i) => {
+        const b = notesBlock(x)
+        return '<details class="item"' + (i === 0 ? '' : '') + '><summary><span class="ver">v' + b.ver +
+          '</span><span class="meta">' + (b.date || '') + '</span></summary><div class="notes">' +
+          (b.inner || '<div class="empty">无说明</div>') + '</div></details>'
+      }).join('')
+    }
+  }
+
+  function refreshAction(st) {
+    const b = $('b-action')
+    const s = $('status')
+    if (st.update) {
+      const map = {
+        installing: ['查看安装进度', '正在后台安装 v' + st.update.version + '，可关闭窗口，随时回到进度'],
+        done: ['查看更新结果', 'v' + st.update.version + ' 已安装完成，重启后生效'],
+        failed: ['查看失败详情', '更新失败：' + (st.update.detail || '未知原因')],
+      }
+      const [label, hint] = map[st.update.phase] || ['查看更新进度', '']
+      b.textContent = label
+      s.innerHTML = hint ? '<span class="hl">' + hint + '</span>' : ''
+    } else if (st.available) {
+      b.textContent = '检查更新'
+      s.innerHTML = '发现新版本 <span class="hl">v' + st.available + '</span>，点击「检查更新」开始安装'
+    } else {
+      b.textContent = '检查更新'
+      s.textContent = ''
+    }
+  }
+
+  $('b-action').addEventListener('click', () => {
+    window.dshUpdate.checkUpdate()
+  })
+  $('b-close').addEventListener('click', () => window.close())
+  init()
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+# 日志
+logs/
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+
+# 环境变量
+.env
+.env.local
+
+# 快捷方式
+*.lnk
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+
+# 桌面版：依赖、打包产物与上游源码克隆
+desktop/node_modules/
+desktop/release/
+deepseek-harness/
+
+# 桌面版运行时数据（开发模式生成）
+desktop/desktop-settings.json
+desktop/dsh-runtime/
+desktop/releases-cache.json
+
+# 本地排障/验证脚本与截图（含公司环境细节，不入库）
+verify/
+
+# 与项目无关的本地杂物
+pelican-bike.html
+
+# 浏览器自动化缓存
+.playwright-mcp/
+
+# Windows 保留名误创建文件
+nul
