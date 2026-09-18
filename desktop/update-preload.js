@@ -1,6 +1,6 @@
 /**
- * 更新弹窗 / 版本说明弹窗共用预加载。
- * dshUpdate：进度事件订阅 + 安装/重启/关闭/重检 + 版本说明拉取与状态。
+ * 版本说明与更新窗口（单窗口）共用预加载。
+ * dshUpdate：更新阶段事件订阅 + 安装/重启/关闭/重检 + 版本说明拉取与状态。
  */
 const { contextBridge, ipcRenderer } = require('electron')
 

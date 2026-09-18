@@ -117,7 +117,7 @@ CLI 定位顺序：应用更新运行时（`userData\dsh-runtime`）→ `DSH_CLI
 
 ```
 DSH/
-├── deepseek-harness/    # 上游源码克隆（gitignore，仅本地参考）
+├── deepseek-harness/    # 上游源码克隆（不入库）
 ├── dsh-anime-theme/     # 二次元主题 dsh 插件（标准 dsh.client + dsh.bundle 结构）
 │   ├── build.mjs        # 生成 lib/client.js（内嵌壁纸/动图 base64）
 │   ├── assets/          # 壁纸 + 动图素材（可自行增删 GIF 后重新 build）
@@ -163,7 +163,7 @@ pnpm run build
 pnpm dsh web
 ```
 
-本地 `deepseek-harness/` 目录即该仓库的克隆（gitignore，仅作依赖锚点比对参考），
+`deepseek-harness/` 目录为上游仓库的克隆（不入库，作依赖锚点比对参考），
 当前克隆版本 0.1.1-rc.2；日常运行走官方 npm 版，两者等价。
 
 ## 桌面壳设计说明与路线图

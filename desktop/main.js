@@ -55,6 +55,9 @@ const PRESTART_VBS = path.join(USER_DATA_DIR, 'dsh-prestart.vbs')
 const PRESTART_SERVER_LOG = path.join(LOG_DIR, 'prestart-server.log')
 const PRESTART_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
 const PRESTART_RUN_NAME = 'DeepSeekHarnessPrestart'
+// 更新回退锚点：runInstall 前写入「更新前版本」，新版本启动失败时据此恢复到同版本线
+// （避免倒退到更旧的 npx 缓存版本、读不了已前向迁移的会话数据）；正常启动后删除
+const ROLLBACK_FILE = path.join(USER_DATA_DIR, 'dsh-update-rollback.json')
 const NPM_REGISTRY = process.env.DSH_NPM_REGISTRY || 'https://registry.npmmirror.com'
 // 平台分支：进程树回收、端口/进程探测、CLI 与 node 候选路径、登录预热注册
 // 按平台走不同实现（win: taskkill/netstat/tasklist/Run 键；mac: kill/lsof/ps）
@@ -100,11 +103,38 @@ function stamp() {
   return new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
 }
 
+// 后台/分离启动（父进程已退出）时 stdout 管道关闭，写管道会以两种形态伤到主进程：
+// ① console.log 同步抛 EPIPE（截获后停用控制台输出）；② process.stdout 异步 emit
+// 'error'/EPIPE 打断未捕获异常链（会中断启动流程）。
+// 三层防线：同步 try/catch + 停用；stdout/stderr error 监听吞掉；uncaughtException
+// 仅吞 EPIPE（其余如实弹错退出，不掩盖真实 bug）。
+let consoleOk = true
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`
-  console.log(line)
+  if (consoleOk) {
+    try { console.log(line) } catch { consoleOk = false }
+  }
   fs.appendFileSync(logFile, line + '\n')
 }
+for (const stream of [process.stdout, process.stderr]) {
+  if (stream && typeof stream.on === 'function') {
+    stream.on('error', (err) => {
+      consoleOk = false
+      if (err && err.code !== 'EPIPE') throw err
+    })
+  }
+}
+process.on('uncaughtException', (err) => {
+  if (err && (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED')) {
+    consoleOk = false
+    try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] 已忽略 stdout 管道断裂（EPIPE）\n`) } catch { /* 忽略 */ }
+    return
+  }
+  // 非 EPIPE：复刻 Electron 默认行为（弹窗 + 退出），先落盘日志便于排查
+  try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] 未捕获异常：${err.stack || err.message}\n`) } catch { /* 忽略 */ }
+  dialog.showErrorBox('DeepSeek Harness 主进程异常', `${err.stack || err.message}\n\n日志目录：${LOG_DIR}`)
+  app.exit(1)
+})
 
 function listAnimeGifs() {
   try {
@@ -530,7 +560,10 @@ function injectionScript(version) {
       st.id = 'dsh-bar-clearance';
       st.textContent =
         'html{padding-top:30px !important;box-sizing:border-box !important;' +
-        'height:100% !important;overflow:hidden !important;}';
+        'height:100% !important;overflow:hidden !important;}' +
+        /* 右侧面板「全屏」是 fixed inset:0（fixed 不吃文档级 padding，会顶进顶栏
+           30px 让位区）；面板 class 名是构建哈希，属性选择器才是稳定锚点 */
+        '[data-sidebar-right-panel="fullscreen"]{top:30px !important;}';
       document.head.appendChild(st);
     }
 
@@ -1151,24 +1184,19 @@ function pickNewest(info) {
   return best
 }
 
-// ---------------------------------------------------------------- 更新弹窗
+// ---------------------------------------------------------------- 更新流程状态
 
-let updateWin = null
+// 单窗口原则：版本说明与全部更新阶段（发现/安装/完成/失败）都在 notesWin 一站完成，
+// 不再有独立更新弹窗；事件统一推给 notesWin，窗口未打开时由打开动作重放当前状态。
+
 let pendingUpdate = null // found 阶段确认前的候选版本
 let foundCtx = null // found 阶段展示文案
-// 安装启动后的持久状态（弹窗关闭不影响安装）：phase = installing | done | failed
+// 安装启动后的持久状态（关窗不影响安装）：phase = installing | done | failed
 let updateState = null
 
-// 各阶段窗口高度：found 含更新说明区收高些，installing/failed 给日志区留高
-const PHASE_SIZES = { found: [560, 480], installing: [560, 480], done: [560, 300], failed: [560, 460] }
-
 function sendUpdateEvent(payload) {
-  if (updateWin && !updateWin.isDestroyed()) {
-    if (payload.type === 'phase' && PHASE_SIZES[payload.phase]) {
-      updateWin.setSize(...PHASE_SIZES[payload.phase])
-      updateWin.center()
-    }
-    updateWin.webContents.send('update:event', payload)
+  if (notesWin && !notesWin.isDestroyed()) {
+    notesWin.webContents.send('update:event', payload)
   }
 }
 
@@ -1186,7 +1214,7 @@ function pushBadgeState() {
   barView.webContents.send('badge-state', payload)
 }
 
-/** 把当前更新状态（含已累积日志）完整推给弹窗，用于关窗后重开时回放进度。 */
+/** 把当前更新状态（含已累积日志）完整推给 notesWin，用于关窗后重开时回放进度。 */
 function pushUpdateState() {
   if (!updateState) {
     if (foundCtx) sendUpdateEvent({ type: 'phase', phase: 'found', ...foundCtx })
@@ -1197,63 +1225,25 @@ function pushUpdateState() {
   for (const line of log) sendUpdateEvent({ type: 'log', text: line })
 }
 
-function showUpdateWindow() {
-  if (updateWin && !updateWin.isDestroyed()) {
-    updateWin.focus()
-    pushUpdateState()
-    return
-  }
-  updateWin = new BrowserWindow({
-    width: PHASE_SIZES.found[0],
-    height: PHASE_SIZES.found[1],
-    parent: mainWindow,
-    modal: true,
-    show: false,
-    title: 'DeepSeek Harness 更新',
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    autoHideMenuBar: true,
-    backgroundColor: '#1b1b1f',
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      preload: path.join(APP_ROOT, 'update-preload.js'),
-    },
-  })
-  updateWin.setMenuBarVisibility(false)
-  updateWin.once('ready-to-show', () => {
-    updateWin.show()
-    pushUpdateState()
-  })
-  updateWin.on('closed', () => {
-    // 关窗不中断安装：只记录日志，后台继续装
-    if (updateState && updateState.phase === 'installing') {
-      log(`更新弹窗已关闭，后台继续安装 v${updateState.version}`)
-    }
-    updateWin = null
-  })
-  updateWin.loadFile(path.join(APP_ROOT, 'update.html'))
-}
-
-// ---------------------------------------------------------------- 版本说明弹窗
+// ---------------------------------------------------------------- 版本说明与更新窗口（单窗口）
 
 let notesWin = null
 
+/** 打开（或聚焦）版本说明窗口；有进行中/已完成的更新时重放其状态，同窗衔接全部阶段。 */
 function openNotesWindow() {
   if (notesWin && !notesWin.isDestroyed()) {
     notesWin.focus()
+    pushUpdateState()
     return
   }
   notesWin = new BrowserWindow({
-    width: 660,
-    height: 580,
-    minWidth: 480,
-    minHeight: 380,
+    width: 720,
+    height: 640,
+    minWidth: 520,
+    minHeight: 420,
     parent: mainWindow,
     show: false,
-    title: '版本说明 — DeepSeek Harness',
+    title: '版本说明与更新 — DeepSeek Harness',
     autoHideMenuBar: true,
     backgroundColor: '#1b1b1f',
     webPreferences: {
@@ -1264,8 +1254,17 @@ function openNotesWindow() {
     },
   })
   notesWin.setMenuBarVisibility(false)
-  notesWin.once('ready-to-show', () => notesWin.show())
-  notesWin.on('closed', () => { notesWin = null })
+  notesWin.once('ready-to-show', () => {
+    notesWin.show()
+    pushUpdateState()
+  })
+  notesWin.on('closed', () => {
+    // 关窗不中断安装：只记录日志，后台继续装（点版本徽标可回到进度）
+    if (updateState && updateState.phase === 'installing') {
+      log(`更新窗口已关闭，后台继续安装 v${updateState.version}`)
+    }
+    notesWin = null
+  })
   notesWin.loadFile(path.join(APP_ROOT, 'notes.html'))
 }
 
@@ -1274,6 +1273,60 @@ function appendUpdateLog(line) {
   updateState.log.push(line)
   if (updateState.log.length > 600) updateState.log.shift()
   sendUpdateEvent({ type: 'log', text: line })
+}
+
+/** 读取更新回退锚点（更新前版本）。 */
+function readRollback() {
+  try {
+    return JSON.parse(fs.readFileSync(ROLLBACK_FILE, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** 把指定版本重新装回应用内运行时（启动自愈用；如实验证安装目录版本号）。 */
+function reinstallRuntime(version) {
+  return new Promise((resolve) => {
+    fs.mkdirSync(RUNTIME_DIR, { recursive: true })
+    const baseArgs = ['install', '--prefix', RUNTIME_DIR,
+      `@deepseek-ai/dsh@${version}`, '--registry', NPM_REGISTRY, '--no-audit', '--no-fund']
+    log(`恢复运行时：npm install @deepseek-ai/dsh@${version}`)
+    const proc = IS_WIN
+      ? spawn(process.env.comspec || 'cmd.exe', ['/c', 'npm', ...baseArgs], { windowsHide: true })
+      : spawn('npm', baseArgs)
+    let output = ''
+    proc.stdout.on('data', (b) => { output += b.toString() })
+    proc.stderr.on('data', (b) => { output += b.toString() })
+    proc.on('exit', (code) => {
+      fs.writeFileSync(path.join(LOG_DIR, 'rollback-reinstall.log'), output)
+      const installed = cliVersionOf(path.join(RUNTIME_DIR, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))
+      const ok = code === 0 && installed === version
+      log(`恢复收尾：npm exit=${code}，安装目录版本=${installed || '未知'}，目标=${version} → ${ok ? '成功' : '失败'}`)
+      resolve(ok)
+    })
+    proc.on('error', (err) => {
+      log(`恢复进程错误：${err.message}`)
+      resolve(false)
+    })
+  })
+}
+
+/** 主题插件位置迁移（幂等）：新版 dsh 的插件解析器只从 profile 自身的
+ *  node_modules 解析插件（不再向上查 profiles/node_modules），旧位置的插件
+ *  会导致服务以「plugin tree failed to load」退出，迁移后新旧位置均可工作。 */
+function ensureProfilePlugin() {
+  try {
+    const profiles = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+    const src = path.join(profiles, 'node_modules', 'dsh-anime-theme')
+    const dest = path.join(profiles, 'web', 'node_modules', 'dsh-anime-theme')
+    if (fs.existsSync(src) && !fs.existsSync(dest)) {
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      fs.cpSync(src, dest, { recursive: true })
+      log(`主题插件已迁移到 profile 内（新版解析要求）：${dest}`)
+    }
+  } catch (err) {
+    log(`主题插件迁移失败：${err.message}`)
+  }
 }
 
 function installUpdate(latest, onLine) {
@@ -1315,6 +1368,14 @@ function installUpdate(latest, onLine) {
 
 async function runInstall(pick) {
   await stopPrewarmService() // 预热服务占着运行时文件会让 npm 换包 EPERM
+  // 回退锚点：记下「更新前版本」——新版本起不来时恢复同版本线，避免倒退到更旧的
+  // 缓存版本（旧版本可能读不了已前向迁移的会话数据）
+  const prev = cliVersionOf(path.join(RUNTIME_DIR, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))
+  if (prev) {
+    try {
+      fs.writeFileSync(ROLLBACK_FILE, JSON.stringify({ version: prev, replacedBy: pick.version, at: new Date().toISOString() }))
+    } catch { /* 锚点写失败不阻塞更新 */ }
+  }
   updateState = { phase: 'installing', version: pick.version, startedAt: Date.now(), log: [], prewarm: 'none' }
   pushBadgeState()
   sendUpdateEvent({ type: 'phase', phase: 'installing', version: pick.version, elapsedSec: 0 })
@@ -1413,6 +1474,9 @@ async function fetchReleaseBody(version) {
   }
 }
 
+/** 检查更新（结果回给渲染层在窗口内就地展示，不再弹任何系统/独立窗口）：
+ *  返回 { ok, uptodate, current, latest } 或 { ok:false, error }；发现新版本时
+ *  置 foundCtx 并打开版本说明窗口进入 found 视图。 */
 async function handleCheckUpdate() {
   const current = versionRef.value || ''
   try {
@@ -1422,13 +1486,7 @@ async function handleCheckUpdate() {
     const latestTag = (info['dist-tags'] || {}).latest || '未知'
     log(`更新检测：当前 ${current || '未知'}，全渠道最新 ${pick.version}（${channelLabel(pick)}），latest 标签=${latestTag}`)
     if (current && semverCompare(pick.version, current) <= 0) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'DeepSeek Harness',
-        message: `已是最新版本（v${current}）`,
-        detail: `已检查全部渠道（latest / next / alpha 等）。\nregistry: ${NPM_REGISTRY}`,
-      })
-      return
+      return { ok: true, uptodate: true, current }
     }
     pendingUpdate = pick
     foundCtx = {
@@ -1440,10 +1498,11 @@ async function handleCheckUpdate() {
       notes: await fetchReleaseBody(pick.version),
     }
     pushBadgeState()
-    showUpdateWindow()
+    openNotesWindow()
+    return { ok: true, found: true, latest: pick.version }
   } catch (err) {
     log(`更新检测失败：${err.message}`)
-    dialog.showErrorBox('检查更新失败', `${err.message}`)
+    return { ok: false, error: err.message }
   }
 }
 
@@ -1453,9 +1512,14 @@ let tray = null
 let isQuitting = false
 let allowClose = false
 
+/** 托盘图标按任务栏深浅取色：黑色鲸鱼在深色任务栏不可见，深色时用白色版。 */
+function trayIconPath() {
+  return path.join(ASSET_DIR, nativeTheme.shouldUseDarkColors ? 'icon-light.png' : 'icon.png')
+}
+
 function createTray() {
   if (tray) return
-  tray = new Tray(path.join(ASSET_DIR, 'icon.png'))
+  tray = new Tray(trayIconPath())
   tray.setToolTip('DeepSeek Harness')
   tray.on('click', () => showMainWindow())
   rebuildTrayMenu()
@@ -1538,17 +1602,19 @@ if (!app.requestSingleInstanceLock()) {
 
     // 先解析 CLI/版本号，启动页才能显示版本
     splashStatus('正在定位 dsh CLI …')
+    ensureProfilePlugin() // 旧位置的主题插件迁移（新版插件解析要求，幂等）
     let install = resolveDshInstall()
     versionRef.value = install ? install.version : null
     log(`dsh CLI：${install ? install.entry : '（npx 兜底）'}，版本：${versionRef.value || '未知'}`)
 
-    // 主题联动：内容页 data-ds-dark-theme 变化 → 自绘顶栏换配色
+    // 主题联动：内容页 data-ds-dark-theme 变化 → 自绘顶栏换配色（托盘图标跟随深浅换色）
     ipcMain.on('theme-changed', (_event, isDark) => {
       const mode = isDark ? 'dark' : 'light'
       nativeTheme.themeSource = mode
       if (barView && !barView.webContents.isDestroyed()) {
         barView.webContents.send('bar-theme', { dark: !!isDark, ...BAR_THEMES[mode] })
       }
+      if (tray && !tray.isDestroyed()) tray.setImage(trayIconPath())
     })
 
     // 自绘顶栏按钮动作：窗口控制走窗口本体（close 走询问/托盘逻辑），
@@ -1591,10 +1657,10 @@ if (!app.requestSingleInstanceLock()) {
       ]).popup({ window: mainWindow })
     })
     ipcMain.handle('check-update', () => {
-      // 有进行中/已完成的后台更新时，点徽标 = 回看进度，不重复检测
+      // 有进行中/已完成的后台更新时，检查 = 同窗回看进度，不重复检测
       if (updateState) {
-        showUpdateWindow()
-        return
+        openNotesWindow()
+        return { ok: true, inProgress: true, phase: updateState.phase, version: updateState.version }
       }
       return handleCheckUpdate()
     })
@@ -1607,7 +1673,7 @@ if (!app.requestSingleInstanceLock()) {
       available: foundCtx ? foundCtx.latest : null,
     }))
     ipcMain.on('open-notes', () => openNotesWindow())
-    ipcMain.on('update:open-progress', () => showUpdateWindow())
+    ipcMain.on('update:open-progress', () => openNotesWindow())
     ipcMain.on('update:start', () => {
       if (updateState || !pendingUpdate) return
       runInstall(pendingUpdate).catch((err) => log(`更新流程异常：${err.stack || err.message}`))
@@ -1617,18 +1683,17 @@ if (!app.requestSingleInstanceLock()) {
       pendingUpdate = null
       foundCtx = null
       pushBadgeState()
-      if (updateWin && !updateWin.isDestroyed()) updateWin.close()
       handleCheckUpdate()
     })
     ipcMain.on('update:restart', async () => {
       isQuitting = true
-      if (updateWin && !updateWin.isDestroyed()) updateWin.destroy()
+      if (notesWin && !notesWin.isDestroyed()) notesWin.destroy()
       await stopServer()
       app.relaunch()
       app.exit(0)
     })
     ipcMain.on('update:close', () => {
-      if (updateWin && !updateWin.isDestroyed()) updateWin.close()
+      if (notesWin && !notesWin.isDestroyed()) notesWin.close()
     })
     ipcMain.handle('get-settings', () => readSettings())
 
@@ -1647,28 +1712,56 @@ if (!app.requestSingleInstanceLock()) {
 
     try {
       await bringUpService(install)
+      // 新版本正常运行：清掉回退锚点（下次更新时再写）
+      try { fs.rmSync(ROLLBACK_FILE, { force: true }) } catch { /* 忽略 */ }
     } catch (err) {
-      // 应用内更新运行时（点过"立即更新"后写入）若起不来——比如新版本与旧 profile
-      // 数据不兼容——自动清除它回退到原 CLI 重试一次，避免一次坏更新把应用彻底变砖。
-      // 展示阶段（页面加载/动画）的失败不算运行时损坏（err.phase='present'），不清运行时
+      // 应用内更新运行时若起不来，按序自愈：① 恢复「更新前版本」（同版本线，会话
+      // 数据兼容性最稳）；② 恢复失败才清除运行时回退本机其它 CLI。展示阶段的失败
+      // （err.phase='present'）不算运行时损坏，不动运行时
       if (err.phase !== 'present' && install && install.entry.startsWith(RUNTIME_DIR)) {
-        log(`应用内更新运行时启动失败（${err.message}），自动回退：清除 ${RUNTIME_DIR}`)
-        try { fs.rmSync(RUNTIME_DIR, { recursive: true, force: true }) } catch (e) {
-          log(`清除更新运行时失败：${e.message}`)
+        const rb = readRollback()
+        let recovered = false
+        if (rb && rb.version) {
+          log(`更新运行时启动失败（${err.message}），恢复更新前版本 v${rb.version}`)
+          splashStatus(`新版本启动失败，正在恢复 v${rb.version} …`)
+          recovered = await reinstallRuntime(rb.version)
         }
-        install = resolveDshInstall()
-        versionRef.value = install ? install.version : null
-        log(`回退后 CLI：${install ? install.entry : '（npx 兜底）'}，版本：${versionRef.value || '未知'}`)
-        try {
-          await bringUpService(install)
-          dialog.showMessageBox(mainWindow, {
-            type: 'warning',
-            title: 'DeepSeek Harness',
-            message: `上次更新的版本无法启动，已自动回退到 v${versionRef.value || '未知'}`,
-            detail: '应用内更新运行时已清除，不影响会话数据。可点击版本徽标重新检查更新。',
-          }).catch(() => {})
-        } catch (err2) {
-          failDialog(err2)
+        if (recovered) {
+          install = resolveDshInstall()
+          versionRef.value = install ? install.version : null
+          log(`恢复后 CLI：${install ? install.entry : '（npx 兜底）'}，版本：${versionRef.value || '未知'}`)
+          try {
+            await bringUpService(install)
+            try { fs.rmSync(ROLLBACK_FILE, { force: true }) } catch { /* 忽略 */ }
+            dialog.showMessageBox(mainWindow, {
+              type: 'warning',
+              title: 'DeepSeek Harness',
+              message: `v${rb.replacedBy || '新版本'} 启动失败，已恢复到更新前的 v${versionRef.value || '未知'}`,
+              detail: '会话数据不受影响。可稍后点版本徽标重新检查更新（新版本可能已修复问题）。',
+            }).catch(() => {})
+          } catch (err2) {
+            failDialog(err2)
+          }
+        } else {
+          log(`恢复更新前版本失败，清除运行时并回退本机 CLI`)
+          try { fs.rmSync(RUNTIME_DIR, { recursive: true, force: true }) } catch (e) {
+            log(`清除更新运行时失败：${e.message}`)
+          }
+          try { fs.rmSync(ROLLBACK_FILE, { force: true }) } catch { /* 忽略 */ }
+          install = resolveDshInstall()
+          versionRef.value = install ? install.version : null
+          log(`回退后 CLI：${install ? install.entry : '（npx 兜底）'}，版本：${versionRef.value || '未知'}`)
+          try {
+            await bringUpService(install)
+            dialog.showMessageBox(mainWindow, {
+              type: 'warning',
+              title: 'DeepSeek Harness',
+              message: `上次更新的版本无法启动，已回退到 v${versionRef.value || '未知'}`,
+              detail: '若左侧会话列表为空，多为旧版本读不了新版本的会话数据格式，重新检查更新到最新版即可恢复。',
+            }).catch(() => {})
+          } catch (err2) {
+            failDialog(err2)
+          }
         }
       } else {
         failDialog(err)

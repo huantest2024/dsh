@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "productName": "DeepSeek Harness",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DeepSeek Harness 桌面版（Electron）：自托管 dsh web 服务，ZCode 风格深色主题 + 二次元挂件",
   "author": "huantest2024",
   "license": "MIT",
@@ -29,7 +29,6 @@
       "bar-preload.js",
       "bar.html",
       "update-preload.js",
-      "update.html",
       "notes.html",
       "splash/**",
       "assets/**",

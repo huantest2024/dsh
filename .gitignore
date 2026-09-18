@@ -17,9 +17,9 @@ logs/
 Thumbs.db
 Desktop.ini
 
-# 桌面版：依赖、打包产物与上游源码克隆
+# 桌面版：依赖、打包产物与上游源码克隆（release* 覆盖换目录构建的产物）
 desktop/node_modules/
-desktop/release/
+desktop/release*/
 deepseek-harness/
 
 # 桌面版运行时数据（开发模式生成）
@@ -27,7 +27,7 @@ desktop/desktop-settings.json
 desktop/dsh-runtime/
 desktop/releases-cache.json
 
-# 本地排障/验证脚本与截图（含公司环境细节，不入库）
+# 本地排障脚本与截图（不入库）
 verify/
 
 # 与项目无关的本地杂物
@@ -38,3 +38,8 @@ pelican-bike.html
 
 # Windows 保留名误创建文件
 nul
+
+# 本地杂物（勿入库）
+pelican-bicycle.html
+prompt-logo.json
+videos/
