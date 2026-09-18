@@ -1,7 +1,6 @@
 # DeepSeek Harness Desktop（Electron 桌面版 + 二次元主题插件）
 
-![Uploading image.png…]()
-
+<img width="1920" height="1032" alt="界面展示" src="https://github.com/user-attachments/assets/6cad80af-cafe-48cd-9da9-0fd521598aee" />
 
 > 把 DeepSeek Harness Web 端打包成**真正的桌面应用**：独立 Electron 窗口（不再是浏览器 App Mode 网页），
 > 启动时自动拉起 `dsh web` 服务、关闭窗口自动回收进程。
