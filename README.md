@@ -1,5 +1,8 @@
 # DeepSeek Harness Desktop（Electron 桌面版 + 二次元主题插件）
 
+![Uploading image.png…]()
+
+
 > 把 DeepSeek Harness Web 端打包成**真正的桌面应用**：独立 Electron 窗口（不再是浏览器 App Mode 网页），
 > 启动时自动拉起 `dsh web` 服务、关闭窗口自动回收进程。
 > **更新安全性**：不修改上游任何文件，dsh 更新不影响封装——依赖锚点比对与失效预案见
