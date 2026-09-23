@@ -11,7 +11,7 @@
  *  4. 向 Web UI 注入 ZCode 风格深色调色与二次元挂件（随机动图，每次启动换一个）
  */
 
-const { app, BrowserWindow, WebContentsView, Tray, Menu, dialog, ipcMain, nativeTheme, shell } = require('electron')
+const { app, BrowserWindow, WebContentsView, Tray, Menu, dialog, ipcMain, nativeTheme, shell, screen } = require('electron')
 const { spawn, execFile } = require('child_process')
 const fs = require('fs')
 const http = require('http')
@@ -567,6 +567,44 @@ function injectionScript(version) {
       document.head.appendChild(st);
     }
 
+    /* 账号登录自动打开：dsh 纯浏览器部署的登录流程只有「等待登录」弹窗 +「复制登录
+       链接」手动路径（原生桌面版靠 desktopPlatform 内置页自动开）。壳里把体验补回来：
+       ① 拦截剪贴板写入——复制的内容是 DeepSeek 授权链接时同步 window.open，主进程
+          setWindowOpenHandler 对 deepseek.com 域放行壳内弹窗（登录页可见、置前，
+          完成后回调 /oauth/callback 自动关闭）；
+       ② 「等待登录」对话框出现且链接按钮可用时自动触发一次点击（每个对话框实例一次），
+          对齐原生「自动打开登录页」的体验；节流避免 MutationObserver 高频全量扫描。 */
+    if (navigator.clipboard && navigator.clipboard.writeText && !window.__dshAuthLinkHook) {
+      window.__dshAuthLinkHook = true;
+      var __origWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = function (text) {
+        try {
+          if (/^https:\\/\\/[a-z0-9.-]*deepseek\\.com\\//i.test(String(text))) {
+            window.open(String(text), '_blank', 'noopener');
+          }
+        } catch (e) { /* 弹窗失败不挡复制 */ }
+        return __origWriteText(text);
+      };
+      var __authTimer = null;
+      var __authAutoOpen = function () {
+        if (!document.body || !document.body.innerText.includes('等待登录')) return;
+        var btns = document.querySelectorAll('button');
+        for (var i = 0; i < btns.length; i++) {
+          var b = btns[i];
+          if ((b.textContent || '').trim() === '复制登录链接' && !b.disabled && !b.__dshAutoOpened) {
+            b.__dshAutoOpened = true;
+            b.click();
+            return;
+          }
+        }
+      };
+      new MutationObserver(function () {
+        if (__authTimer) return;
+        __authTimer = setTimeout(function () { __authTimer = null; __authAutoOpen(); }, 250);
+      }).observe(document.documentElement, { childList: true, subtree: true });
+      setTimeout(__authAutoOpen, 800);
+    }
+
     /* 窗口标题带版本号 */
     document.title = 'DeepSeek Harness' + (${JSON.stringify(version)} ? ' v' + ${JSON.stringify(version)} : '');
   })();`
@@ -655,15 +693,200 @@ function createWindow(splashGifPath) {
   // 一律拦截，避免把垃圾字符串丢给 ShellExecute 弹「Windows 找不到」错误框
   const openExternalIfHttp = (url) => {
     if (/^https?:\/\//i.test(url)) {
+      log(`外部打开：${url.slice(0, 120)}`)
       shell.openExternal(url)
     } else {
       log(`已拦截外部打开请求（非 http/https）：${url.slice(0, 200)}`)
     }
   }
+  /* 登录/平台授权页在壳内弹窗打开：原生浏览器里 target=_blank 是可见的新标签页，
+     壳里若丢给系统默认浏览器，窗口可能开在应用后面，用户看着像「没跳转」；
+     且 deny 会让页面 window.open 拿到 null，依赖返回值的流程会误判打开失败。
+     只放行应用自身 origin 与 DeepSeek 平台域，其余外链照旧走系统浏览器。 */
+  const inShellPopup = (url) => {
+    try {
+      const u = new URL(url)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+      const host = u.hostname.toLowerCase()
+      if (host === '127.0.0.1' || host === 'localhost') return true
+      if (/(^|\.)deepseek\.com$/i.test(host)) return true
+      return serverUrl ? u.origin === new URL(serverUrl).origin : false
+    } catch { return false }
+  }
 
   contentView.webContents.setWindowOpenHandler(({ url }) => {
+    if (inShellPopup(url)) {
+      openShellPopup(url)
+      return { action: 'deny' }
+    }
     openExternalIfHttp(url)
     return { action: 'deny' }
+  })
+
+  /* 壳内弹窗 = 主进程自建窗口（deny 掉 window.open）：与主窗口同款双视图架构，
+     barView 固定顶部 34px、pageView 整体下移，几何完全自管。
+     前两版教训：①给 window.open 弹窗的 contentView addChildView 顶栏只能「叠」在
+     页面上（遮挡）；②换 View 组合容器后 Electron 内部仍把页面视图挂回全尺寸渲染
+     （bounds 日志正确但渲染器视口=全窗高，遮挡依旧）——不再借用 window.open 生成的窗口。 */
+  const POPUP_BAR_H = 34
+  /** 弹窗顶栏视图 webContents.id → { wc, win, toggleFullscreen }（动作路由） */
+  const popupBarOwners = new Map()
+  const pushPopupNav = (pageWc, barWc) => {
+    if (barWc.isDestroyed() || pageWc.isDestroyed()) return
+    barWc.send('popup:nav', {
+      canBack: pageWc.canGoBack(),
+      canForward: pageWc.canGoForward(),
+      title: pageWc.getTitle() || '',
+    })
+  }
+  const openShellPopup = (url) => {
+    log(`壳内弹窗（自建窗口）：${url.slice(0, 120)}`)
+    const win = new BrowserWindow({
+      width: 1000, height: 700, minWidth: 480, minHeight: 360,
+      show: false, backgroundColor: '#1b1b1f', autoHideMenuBar: true,
+      title: 'DeepSeek',
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#1b1b1f', symbolColor: '#d4d4d4', height: POPUP_BAR_H },
+    })
+    win.setMenuBarVisibility(false)
+    const barView = new WebContentsView({
+      webPreferences: { preload: path.join(APP_ROOT, 'popup-preload.js') },
+    })
+    const pageView = new WebContentsView({
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    })
+    const wc = pageView.webContents
+    let popupFullscreen = false
+    const toggleFullscreen = () => { popupFullscreen = !popupFullscreen; win.setFullScreen(popupFullscreen) }
+    popupBarOwners.set(barView.webContents.id, { wc, win, toggleFullscreen })
+    /* 布局随全屏态切换：全屏=页面占满整窗，顶栏默认隐藏、由悬浮监听管理（浏览器
+       沉浸式全屏同款：鼠标到屏幕顶缘浮现、移开后延时隐藏）；退出=顶栏常驻+页面下移。 */
+    const applyLayout = () => {
+      try {
+        const [w, h] = win.getContentSize()
+        if (popupFullscreen) {
+          pageView.setBounds({ x: 0, y: 0, width: w, height: h })
+        } else {
+          barView.setVisible(true)
+          barView.setBounds({ x: 0, y: 0, width: w, height: POPUP_BAR_H })
+          pageView.setBounds({ x: 0, y: POPUP_BAR_H, width: w, height: Math.max(0, h - POPUP_BAR_H) })
+        }
+        log(`弹窗布局(fs=${popupFullscreen} ${w}x${h})：page=${JSON.stringify(pageView.getBounds())}`)
+      } catch (e) { log(`弹窗布局失败：${e.message}`) }
+    }
+    const relayout = applyLayout
+    win.on('resize', relayout)
+    /* 全屏顶栏悬浮：轮询系统光标（仅全屏期间，150ms）——顶缘 2px 内浮现（覆盖在
+       页面上方，页面保持全高）；光标离开顶栏区（含 6px 容差）立即隐藏 */
+    let barRevealed = false
+    let hoverPollTimer = null
+    const HOVER_EDGE_PX = 2
+    const HOVER_TOLERANCE_PX = 6
+    const hoverShowBar = (w) => {
+      if (!barRevealed) {
+        barRevealed = true
+        barView.setVisible(true)
+        barView.setBounds({ x: 0, y: 0, width: w, height: POPUP_BAR_H })
+        log('全屏顶栏悬浮显示')
+      }
+    }
+    const hoverHideBar = () => {
+      if (!barRevealed) return
+      barRevealed = false
+      try { barView.setVisible(false) } catch { /* 已销毁 */ }
+      log('全屏顶栏悬浮隐藏')
+    }
+    const startHoverWatch = () => {
+      stopHoverWatch()
+      hoverPollTimer = setInterval(() => {
+        try {
+          if (win.isDestroyed()) return stopHoverWatch()
+          if (!popupFullscreen) return stopHoverWatch()
+          const cursor = screen.getCursorScreenPoint()
+          const b = win.getBounds()
+          const withinX = cursor.x >= b.x && cursor.x <= b.x + b.width
+          if (cursor.y <= b.y + HOVER_EDGE_PX && withinX) {
+            hoverShowBar(b.width)
+          } else if (barRevealed) {
+            const onBar = withinX && cursor.y <= b.y + POPUP_BAR_H + HOVER_TOLERANCE_PX
+            if (!onBar) hoverHideBar()
+          }
+        } catch { /* 窗口销毁竞态 */ }
+      }, 150)
+    }
+    const stopHoverWatch = () => {
+      if (hoverPollTimer) { clearInterval(hoverPollTimer); hoverPollTimer = null }
+    }
+    // F11 / Esc：自维护状态切换（titleBarOverlay 下 isFullScreen() 偶发失真会卡全屏）。
+    // 全屏过渡期同步 setBounds 会打断 Windows 的全屏切换（实测进不去全屏）——延迟应用。
+    win.on('enter-full-screen', () => {
+      popupFullscreen = true
+      log('弹窗 enter-full-screen')
+      barRevealed = false
+      try { barView.setVisible(false) } catch { /* 已销毁 */ }
+      setTimeout(() => { applyLayout(); startHoverWatch() }, 80)
+    })
+    win.on('leave-full-screen', () => {
+      popupFullscreen = false
+      log('弹窗 leave-full-screen')
+      stopHoverWatch()
+      barRevealed = false
+      setTimeout(applyLayout, 80)
+      setTimeout(applyLayout, 400)
+    })
+    const onKey = (event, input) => {
+      if (input.type !== 'keyDown') return
+      if (input.key === 'F11') {
+        event.preventDefault()
+        toggleFullscreen()
+      } else if (input.key === 'Escape' && popupFullscreen) {
+        event.preventDefault()
+        win.setFullScreen(false)
+      }
+    }
+    wc.on('before-input-event', onKey)
+    barView.webContents.on('before-input-event', onKey)
+    const pushNav = () => pushPopupNav(wc, barView.webContents)
+    wc.on('did-finish-load', pushNav)
+    wc.on('did-navigate', pushNav)
+    wc.on('did-navigate-in-page', pushNav)
+    wc.on('page-title-updated', pushNav)
+    barView.webContents.on('did-finish-load', pushNav)
+    // 平台「返回 DeepSeek Harness」按钮走 dsh:// 深链（原生桌面协议），本机未注册协议
+    // 会弹 Windows「找不到应用」框——拦截所有非 http(s) 导航，语义即「回到应用」
+    wc.on('will-navigate', (event, u) => {
+      if (/^https?:/i.test(u)) return
+      event.preventDefault()
+      log(`已拦截弹窗深链导航并回主界面：${u.slice(0, 120)}`)
+      showMainWindow()
+    })
+    // 弹窗页面里的二级 window.open：同策略（自建新弹窗 / 外链走系统浏览器）
+    wc.setWindowOpenHandler(({ url: u }) => {
+      if (inShellPopup(u)) { openShellPopup(u); return { action: 'deny' } }
+      openExternalIfHttp(u)
+      return { action: 'deny' }
+    })
+    win.on('closed', () => {
+      popupBarOwners.delete(barView.webContents.id)
+      try { barView.webContents.destroy() } catch { /* 已销毁 */ }
+      try { pageView.webContents.destroy() } catch { /* 已销毁 */ }
+    })
+    win.contentView.addChildView(pageView)
+    win.contentView.addChildView(barView)
+    relayout()
+    barView.webContents.loadFile(path.join(APP_ROOT, 'popup-bar.html'))
+    wc.loadURL(url)
+    win.show()
+  }
+  ipcMain.on('popup:action', (event, action) => {
+    const owner = popupBarOwners.get(event.sender.id)
+    if (!owner || owner.wc.isDestroyed()) return
+    const { wc } = owner
+    if (action === 'back') { if (wc.canGoBack()) wc.goBack() }
+    else if (action === 'forward') { if (wc.canGoForward()) wc.goForward() }
+    else if (action === 'reload') wc.reload()
+    else if (action === 'external') openExternalIfHttp(wc.getURL())
+    else if (action === 'fullscreen') owner.toggleFullscreen()
   })
 
   // 下载接管：会话导出等下载静默存入系统下载目录，完成后气泡提示
@@ -817,6 +1040,7 @@ async function bringUpService(install) {
   await stopServer()
   serverPort = null
   serverUrl = null
+  ensureClientPlatformHeader() // 平台 422 修复：必须在服务 spawn 前落盘（每次启动幂等）
 
   splashStatus('正在启动 DeepSeek Harness 服务 …')
   let viaAdopt = false
@@ -1214,15 +1438,17 @@ function pushBadgeState() {
   barView.webContents.send('badge-state', payload)
 }
 
-/** 把当前更新状态（含已累积日志）完整推给 notesWin，用于关窗后重开时回放进度。 */
+/** 把当前更新状态（含已累积日志）完整推给 notesWin，用于关窗后重开时回放进度。
+ *  日志必须先于 phase 事件回放：failed 分支渲染时要从 $('log') 拷贝已回放的日志，
+ *  phase 在前会把 x-log 抄成空（弹窗里只见「（无安装输出）」而真实 npm 报错丢失）。 */
 function pushUpdateState() {
   if (!updateState) {
     if (foundCtx) sendUpdateEvent({ type: 'phase', phase: 'found', ...foundCtx })
     return
   }
   const { log, startedAt, ...rest } = updateState
-  sendUpdateEvent({ type: 'phase', ...rest, elapsedSec: Math.round((Date.now() - startedAt) / 1000) })
   for (const line of log) sendUpdateEvent({ type: 'log', text: line })
+  sendUpdateEvent({ type: 'phase', ...rest, elapsedSec: Math.round((Date.now() - startedAt) / 1000) })
 }
 
 // ---------------------------------------------------------------- 版本说明与更新窗口（单窗口）
@@ -1314,6 +1540,23 @@ function reinstallRuntime(version) {
 /** 主题插件位置迁移（幂等）：新版 dsh 的插件解析器只从 profile 自身的
  *  node_modules 解析插件（不再向上查 profiles/node_modules），旧位置的插件
  *  会导致服务以「plugin tree failed to load」退出，迁移后新旧位置均可工作。 */
+/** 0.1.7-alpha.2 平台 API 要求 auth_exchange 携带 x-client-platform: desktop-win，
+ *  而纯 web 部署默认发 "web"，平台 422 拒绝（登录永远失败）。运行时包内强制改为
+ *  win32；npm 更新会还原该文件，故每次启动幂等重打（无锚点=已打过或上游已修，跳过）。 */
+function ensureClientPlatformHeader() {
+  const lib = path.join(RUNTIME_DIR, 'node_modules', '@deepseek-ai', 'dsh-deepseek-account-platform', 'lib', 'index.js')
+  try {
+    if (!fs.existsSync(lib)) return
+    const src = fs.readFileSync(lib, 'utf8')
+    const needle = 'desktopClientHeaders(resolved.desktopPlatform)'
+    if (!src.includes(needle)) return
+    fs.writeFileSync(lib, src.replace(needle, 'desktopClientHeaders("win32")'))
+    log(`已补齐 dsh 运行时 x-client-platform 头（desktop-win，平台 422 修复）`)
+  } catch (err) {
+    log(`x-client-platform 补丁失败（登录可能受影响）：${err.message}`)
+  }
+}
+
 function ensureProfilePlugin() {
   try {
     const profiles = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
@@ -1368,6 +1611,15 @@ function installUpdate(latest, onLine) {
 
 async function runInstall(pick) {
   await stopPrewarmService() // 预热服务占着运行时文件会让 npm 换包 EPERM
+  // Windows：dsh web 会在服务进程下再拉一个「端口 worker」（cwd 在运行时 lib 内、与
+  // 父进程脱链），taskkill /T 杀不到它；它占着 lib 目录会让 npm 换包 rename 必然
+  // EBUSY（实测：worker 在跑时包内文件均可改名、唯独 lib 目录 rename 失败，清掉
+  // worker 后立即可）。所以先停服务，再按端口把残留 worker 一并清扫；收尾无论
+  // 成败都把服务拉回，保证界面始终可用。
+  await stopServer()
+  for (const port of [...new Set([serverPort, PREFERRED_PORT, PREWARM_PORT].filter(Boolean))]) {
+    await sweepOrphanServer(port)
+  }
   // 回退锚点：记下「更新前版本」——新版本起不来时恢复同版本线，避免倒退到更旧的
   // 缓存版本（旧版本可能读不了已前向迁移的会话数据）
   const prev = cliVersionOf(path.join(RUNTIME_DIR, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))
@@ -1392,13 +1644,67 @@ async function runInstall(pick) {
     updateState = { phase: 'failed', version: pick.version, detail, log: stateLog, prewarm: 'none' }
     pushBadgeState()
     sendUpdateEvent({ type: 'phase', phase: 'failed', version: pick.version, detail })
+    bringBackService('更新失败，恢复原服务')
     return
   }
-  updateState = { phase: 'done', version: pick.version, seconds, log: stateLog, prewarm: 'warming' }
+  updateState = { phase: 'done', version: pick.version, seconds, log: stateLog, prewarm: 'none' }
   pushBadgeState()
-  sendUpdateEvent({ type: 'phase', phase: 'done', version: pick.version, seconds, prewarm: 'warming' })
-  // 新文件首次过杀软扫描要 30s+：装完立刻后台预热，重启/下次启动直接采纳
-  prewarmNewRuntime(path.join(RUNTIME_DIR, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))
+  sendUpdateEvent({ type: 'phase', phase: 'done', version: pick.version, seconds, prewarm: 'none' })
+  // 直接拉回新版服务：界面原地切到新版本，不再依赖「重启后生效」
+  bringBackService('更新完成，切换到新版本服务')
+}
+
+/** 更新收尾后把 dsh 服务拉回并刷新界面：装上了新版本就切过去，失败则回旧版本。
+ *  起不来时按回退锚点恢复（与启动自愈同一逻辑），最终失败才提示用户重启应用。 */
+async function bringBackService(reason) {
+  log(`${reason}`)
+  try {
+    const install = resolveDshInstall()
+    versionRef.value = install ? install.version : null
+    await bringUpService(install)
+    pushBadgeState()
+    log(`服务已拉回：${versionRef.value || '未知'} 版本`)
+    return
+  } catch (err) {
+    if (err.phase === 'present') {
+      // 展示阶段失败（服务其实起来了，界面没加载好）：不动运行时，提示重启
+      log(`更新后界面加载失败（${err.message}），服务本身已就绪`)
+      dialog.showMessageBox(mainWindow, {
+        type: 'warning', title: 'DeepSeek Harness',
+        message: '服务已启动，但界面加载失败，请重启应用',
+        detail: `${err.message}\n日志目录：${LOG_DIR}`,
+      }).catch(() => {})
+      return
+    }
+    log(`更新后服务拉起失败（${err.message}），尝试按回退锚点恢复`)
+    const rb = readRollback()
+    if (rb && rb.version) {
+      const recovered = await reinstallRuntime(rb.version)
+      if (recovered) {
+        try {
+          const install = resolveDshInstall()
+          versionRef.value = install ? install.version : null
+          updateState = null
+          foundCtx = null
+          await bringUpService(install)
+          pushBadgeState()
+          dialog.showMessageBox(mainWindow, {
+            type: 'warning', title: 'DeepSeek Harness',
+            message: `新版本服务启动失败，已恢复到更新前的 v${versionRef.value || '未知'}`,
+            detail: '会话数据不受影响。可稍后点版本徽标重新检查更新。',
+          }).catch(() => {})
+          return
+        } catch (err2) {
+          log(`回退版本也拉不起来（${err2.message}）`)
+        }
+      }
+    }
+    dialog.showMessageBox(mainWindow, {
+      type: 'error', title: 'DeepSeek Harness',
+      message: '更新后服务未能启动，请重启应用',
+      detail: `若重启仍失败，应用会自动按回退锚点恢复。\n日志目录：${LOG_DIR}`,
+    }).catch(() => {})
+  }
 }
 
 // ---------------------------------------------------------------- 版本说明（GitHub Releases）
@@ -1495,10 +1801,17 @@ async function handleCheckUpdate() {
       channel: channelLabel(pick),
       publishedAt: pick.publishedAt ? pick.publishedAt.slice(0, 10) : '',
       registry: NPM_REGISTRY,
-      notes: await fetchReleaseBody(pick.version),
+      notes: '',
     }
     pushBadgeState()
     openNotesWindow()
+    // 发布说明走 GitHub（15s 超时才兜缓存）不能挡在跳转前面——曾致点「检查更新」
+    // 数秒无反应被连点。先带占位说明跳转，说明拉到后再补发 found 事件刷新内容。
+    fetchReleaseBody(pick.version).then((body) => {
+      if (!foundCtx || foundCtx.latest !== pick.version) return
+      foundCtx.notes = body
+      sendUpdateEvent({ type: 'phase', phase: 'found', ...foundCtx })
+    }).catch(() => { /* 说明拿不到就保持占位文案 */ })
     return { ok: true, found: true, latest: pick.version }
   } catch (err) {
     log(`更新检测失败：${err.message}`)
@@ -1711,9 +2024,9 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     try {
-      await bringUpService(install)
-      // 新版本正常运行：清掉回退锚点（下次更新时再写）
-      try { fs.rmSync(ROLLBACK_FILE, { force: true }) } catch { /* 忽略 */ }
+    await bringUpService(install)
+    // 新版本正常运行：清掉回退锚点（下次更新时再写）
+    try { fs.rmSync(ROLLBACK_FILE, { force: true }) } catch { /* 忽略 */ }
     } catch (err) {
       // 应用内更新运行时若起不来，按序自愈：① 恢复「更新前版本」（同版本线，会话
       // 数据兼容性最稳）；② 恢复失败才清除运行时回退本机其它 CLI。展示阶段的失败

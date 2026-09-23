@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>popup bar</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 34px; overflow: hidden; }
+  body {
+    display: flex; align-items: center; gap: 2px; padding: 0 0 0 8px;
+    background: #1b1b1f; border-bottom: 1px solid #2c2c33;
+    font: 12px "Segoe UI", "Microsoft YaHei", sans-serif; color: #c8c8d0;
+    user-select: none;
+    -webkit-app-region: drag; /* 整条即拖动区；按钮逐个排除 */
+  }
+  button {
+    min-width: 30px; height: 26px; padding: 0 6px; border: 0; border-radius: 5px;
+    background: none; color: #c8c8d0; cursor: pointer; font-size: 14px; line-height: 1;
+    font-family: inherit; -webkit-app-region: no-drag; flex: none;
+  }
+  button:hover { background: #2b2b31; color: #fff; }
+  button:disabled { opacity: .35; cursor: default; background: none; }
+  #title {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: #a0a0ab; padding: 0 10px;
+  }
+  #external { font-size: 12px; }
+  /* 最右侧按钮让位 titleBarOverlay 的系统最小化/最大化/关闭按钮 */
+  #fullscreen { margin-right: 142px; font-size: 13px; }
+</style>
+</head>
+<body>
+  <button id="back" title="后退">&#8249;</button>
+  <button id="forward" title="前进">&#8250;</button>
+  <button id="reload" title="刷新">&#8635;</button>
+  <span id="title"></span>
+  <button id="external" title="用系统默认浏览器打开当前页">&#8599; 在浏览器中打开</button>
+  <button id="fullscreen" title="全屏（F11）">&#9974;</button>
+<script>
+  var send = function (a) { window.dshPopup && window.dshPopup.action(a) }
+  document.getElementById('back').addEventListener('click', function () { send('back') })
+  document.getElementById('forward').addEventListener('click', function () { send('forward') })
+  document.getElementById('reload').addEventListener('click', function () { send('reload') })
+  document.getElementById('external').addEventListener('click', function () { send('external') })
+  document.getElementById('fullscreen').addEventListener('click', function () { send('fullscreen') })
+  window.dshPopup && window.dshPopup.onNav(function (s) {
+    document.getElementById('back').disabled = !s.canBack
+    document.getElementById('forward').disabled = !s.canForward
+    document.getElementById('title').textContent = s.title || ''
+  })
+</script>
+</body>
+</html>
