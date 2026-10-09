@@ -1,0 +1,8 @@
+# dsh-anime-theme bundle patch：把本插件挂进 cordis 插件树。
+# 浏览器端的全部视觉逻辑在 dsh.client face（lib/client.js）；
+# 宿主侧插件（lib/index.js）只是让本包成为 loader entry，
+# 从而被 client-modules 扫描到 dsh.client 声明并服务 /plugins/dsh-anime-theme/client.js。
+
+- insert:
+    - id: anime-theme
+      name: 'dsh-anime-theme'

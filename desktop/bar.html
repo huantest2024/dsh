@@ -24,18 +24,24 @@
   body.light { background: #f3f3f3; color: #55555a; border-bottom-color: rgba(0, 0, 0, 0.08); }
   .brand { display: flex; align-items: center; gap: 7px; padding: 0 8px 0 12px; flex: none; }
   .brand img { width: 16px; height: 16px; display: block; }
-  .brand span { font-size: 12px; }
+  .brand span { font-size: 12px; color: var(--bar-accent, inherit); }
 
-  /* 版本徽标：点击看版本说明/更新进度；五态配色与页内版一致 */
+  /* 版本徽标：点击看版本说明/更新进度；五态配色与页内版一致。
+     --bar-accent 由主进程 bar-accent 推送（全局主题强调色）：未设置时走回退值，
+     状态色（available/installing/done/failed）优先级更高，更新状态信号不被染色覆盖 */
   .badge {
     flex: none;
     display: inline-flex; align-items: center;
     padding: 1px 9px; border-radius: 10px; cursor: pointer;
     font-size: 11px; line-height: 16px; font-family: Consolas, monospace;
-    color: #9aa0a6; background: #2d2d30; border: 1px solid #3c3c3d;
+    color: var(--bar-accent, #9aa0a6); background: #2d2d30;
+    border: 1px solid var(--bar-accent, #3c3c3d);
     transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
-  body.light .badge { color: #5a5a5a; background: #e8e8e8; border-color: #d0d0d0; }
+  body.light .badge {
+    color: var(--bar-accent, #5a5a5a); background: #e8e8e8;
+    border-color: var(--bar-accent, #d0d0d0);
+  }
   .badge:hover { filter: brightness(1.15); }
   .badge[data-state="available"], .badge[data-state="installing"] {
     color: #4d86fe; border-color: rgba(77, 134, 254, 0.6); font-weight: 600;
@@ -54,7 +60,7 @@
   .btn:hover { background: rgba(255, 255, 255, 0.09); }
   body.light .btn:hover { background: rgba(0, 0, 0, 0.08); }
   .btn svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.2; fill: none; }
-  .btn.theme { width: 36px; font-size: 14px; line-height: 1; }
+  .btn.theme { width: 36px; font-size: 14px; line-height: 1; color: var(--bar-accent, inherit); }
   .btn.close:hover { background: #e81123; color: #fff; }
 </style>
 </head>
@@ -113,6 +119,17 @@
   })()
   window.dshBar.onTheme(function (p) {
     document.body.classList.toggle('light', !p.dark)
+  })
+  /* 全局主题强调色（主进程从内容页 --dsh-anime-accent 异步读回后推送）：非空时在
+     body 上设 --bar-accent，品牌名/🎨/版本徽章经 CSS var(…, 回退值) 染色；空串移除
+     变量回退现有深浅配色。深浅切换只切 body.light、不动本变量 → accent 持久有效 */
+  window.dshBar.onBarAccent(function (d) {
+    var accent = (d && d.accent ? String(d.accent) : '').trim()
+    if (accent) {
+      document.body.style.setProperty('--bar-accent', accent)
+    } else {
+      document.body.style.removeProperty('--bar-accent')
+    }
   })
   window.dshBar.onMaximized(function (m) {
     document.getElementById('icon-max').style.display = m ? 'none' : ''

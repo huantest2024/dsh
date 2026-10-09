@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('dshBar', {
   openNotes: () => ipcRenderer.send('open-notes'),
   /** 内容页深浅主题变化（data-ds-dark-theme 上报转发）。 */
   onTheme: (cb) => ipcRenderer.on('bar-theme', (_e, p) => cb(p)),
+  /** 全局主题强调色推送（内容页 --dsh-anime-accent 镜像；''=无主题色，bar 回退深浅配色）。 */
+  onBarAccent: (cb) => ipcRenderer.on('bar-accent', (_e, d) => cb(d)),
   /** 窗口最大化/还原状态推送（切换按钮图标）。 */
   onMaximized: (cb) => ipcRenderer.on('bar-maximized', (_e, m) => cb(m)),
   /** 版本徽标状态推送（idle/available/installing/done/failed）。 */

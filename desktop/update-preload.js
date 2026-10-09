@@ -23,4 +23,16 @@ contextBridge.exposeInMainWorld('dshUpdate', {
   notesState: () => ipcRenderer.invoke('notes-state'),
   /** 打开更新进度弹窗。 */
   openProgress: () => ipcRenderer.send('update:open-progress'),
+  /** 订阅应用主题（data: { dark: boolean }），主进程在加载完成与主题变化时推送。 */
+  onNotesTheme: (cb) => ipcRenderer.on('notes-theme', (event, data) => cb(data)),
+  /** 壳自身更新（与 dsh 运行时更新独立）：读壳版本。 */
+  shellInfo: () => ipcRenderer.invoke('shell-info'),
+  /** 检查壳更新（GitHub Releases 最新版）。 */
+  shellCheck: () => ipcRenderer.invoke('shell-update:check'),
+  /** 开始下载壳更新安装包（进度经 onShellUpdateEvent 推送）。 */
+  shellDownload: () => ipcRenderer.invoke('shell-update:download'),
+  /** 下载完成后静默安装并退出（安装器负责拉起新版）。 */
+  shellInstall: () => ipcRenderer.invoke('shell-update:install'),
+  /** 订阅壳更新事件（type: download-start | download-progress | download-done | download-failed）。 */
+  onShellUpdateEvent: (cb) => ipcRenderer.on('shell-update-event', (_e, payload) => cb(payload)),
 })

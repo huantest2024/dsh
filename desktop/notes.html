@@ -5,20 +5,84 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <title>版本说明与更新 — DeepSeek Harness</title>
 <style>
-  :root { color-scheme: dark; }
+  /* ============ 主题变量：:root 深色（默认，维持原视觉），body[data-theme="light"] 浅色 ============ */
+  :root {
+    color-scheme: dark;
+    --n-bg: #1b1b1f;             /* 页面底色 */
+    --n-fg: #d4d4d4;             /* 正文前景 */
+    --n-fg-strong: #ffffff;      /* 标题前景 */
+    --n-fg-soft: #a0a0ab;        /* 状态行 / 次要说明 */
+    --n-fg-summary: #c8c8d0;     /* 历史面板一级摘要 */
+    --n-fg-item: #b8b8c0;        /* 历史面板条目摘要 */
+    --n-muted: #8a8a94;          /* 弱化文本（meta/empty/loading） */
+    --n-border: #2c2c33;         /* 常规边框 / 分隔线 */
+    --n-border-soft: #242429;    /* 折叠面板内分隔线 */
+    --n-accent: #4d86fe;         /* 主题色（链接/版本号/高亮） */
+    --n-accent-hover: #7aa6ff;   /* 主题色悬停 */
+    --n-surface: #141416;        /* 面板底（代码/日志/更新说明） */
+    --n-panel-bg: #17171a;       /* 历史折叠面板底 */
+    --n-code-fg: #9cdcfe;        /* 代码/日志前景 */
+    --n-btn-bg: #2b2b31;         /* 普通按钮 */
+    --n-btn-border: #3a3a42;
+    --n-btn-fg: #d4d4d4;
+    --n-btn-hover: #35353c;
+    --n-primary-bg: #2f6fed;     /* 主按钮 */
+    --n-primary-border: #2f6fed;
+    --n-primary-fg: #ffffff;
+    --n-primary-hover: #3d7bf0;
+    --n-tag-bg: rgba(87,171,90,.16);  /* 渠道徽章 */
+    --n-tag-fg: #7bc882;
+    --n-tag-border: rgba(87,171,90,.35);
+    --n-bar-bg: #2a2a30;         /* 进度条槽 */
+    --n-bar-1: #4f8ef7;          /* 进度条渐变 */
+    --n-bar-2: #7ab2ff;
+    --n-danger: #f07178;         /* 错误/失败 */
+  }
+  body[data-theme="light"] {
+    color-scheme: light;
+    --n-bg: #f3f3f3;
+    --n-fg: #1b1b1c;
+    --n-fg-strong: #101012;
+    --n-fg-soft: #5d5d66;
+    --n-fg-summary: #3a3a42;
+    --n-fg-item: #4a4a52;
+    --n-muted: #6b6b74;
+    --n-border: rgba(0,0,0,0.08);
+    --n-border-soft: rgba(0,0,0,0.06);
+    --n-accent: #2f6fed;
+    --n-accent-hover: #1e56c9;
+    --n-surface: #ffffff;
+    --n-panel-bg: #ffffff;
+    --n-code-fg: #0451a5;
+    --n-btn-bg: #ececec;
+    --n-btn-border: rgba(0,0,0,0.12);
+    --n-btn-fg: #1b1b1c;
+    --n-btn-hover: #e0e0e0;
+    --n-primary-bg: #2f6fed;
+    --n-primary-border: #2f6fed;
+    --n-primary-fg: #ffffff;
+    --n-primary-hover: #1e5ed1;
+    --n-tag-bg: rgba(16,124,16,.10);
+    --n-tag-fg: #107c10;
+    --n-tag-border: rgba(16,124,16,.35);
+    --n-bar-bg: rgba(0,0,0,0.08);
+    --n-bar-1: #2f6fed;
+    --n-bar-2: #5e93f8;
+    --n-danger: #d13438;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-    background: #1b1b1f; color: #d4d4d4; font-size: 13px;
+    background: var(--n-bg); color: var(--n-fg); font-size: 13px;
     height: 100vh; overflow: hidden; user-select: none;
   }
   button {
-    padding: 6px 16px; border-radius: 6px; border: 1px solid #3a3a42;
-    background: #2b2b31; color: #d4d4d4; cursor: pointer; font-size: 12px; font-family: inherit;
+    padding: 6px 16px; border-radius: 6px; border: 1px solid var(--n-btn-border);
+    background: var(--n-btn-bg); color: var(--n-btn-fg); cursor: pointer; font-size: 12px; font-family: inherit;
   }
-  button:hover { background: #35353c; }
-  button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
-  button.primary:hover { background: #3d7bf0; }
+  button:hover { background: var(--n-btn-hover); }
+  button.primary { background: var(--n-primary-bg); border-color: var(--n-primary-border); color: var(--n-primary-fg); }
+  button.primary:hover { background: var(--n-primary-hover); }
 
   /* ============ 视图切换：版本说明 / 更新流程（单窗口两视图） ============ */
   #view-notes, #view-update { height: 100%; display: none; flex-direction: column; }
@@ -26,49 +90,49 @@
   body[data-view="update"] #view-update { display: flex; }
 
   /* ============ 版本说明视图 ============ */
-  header { padding: 16px 22px 12px; border-bottom: 1px solid #2c2c33; flex: none; }
+  header { padding: 16px 22px 12px; border-bottom: 1px solid var(--n-border); flex: none; }
   .row { display: flex; align-items: center; gap: 12px; }
-  h1 { font-size: 15px; font-weight: 600; color: #fff; flex: 1; }
-  h1 .ver { color: #4d86fe; }
-  .status { margin-top: 8px; font-size: 12px; color: #a0a0ab; min-height: 16px; white-space: pre-line; }
-  .status .hl { color: #4d86fe; }
+  h1 { font-size: 15px; font-weight: 600; color: var(--n-fg-strong); flex: 1; }
+  h1 .ver { color: var(--n-accent); }
+  .status { margin-top: 8px; font-size: 12px; color: var(--n-fg-soft); min-height: 16px; white-space: pre-line; }
+  .status .hl { color: var(--n-accent); }
   .status .hl.go-ver { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-  .status .hl.go-ver:hover { color: #7aa6ff; }
-  .status .err { color: #f07178; }
+  .status .hl.go-ver:hover { color: var(--n-accent-hover); }
+  .status .err { color: var(--n-danger); }
   #view-notes > main { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 22px 18px; }
-  h2.sec { font-size: 13px; color: #fff; margin: 4px 0 8px; }
-  .meta { color: #8a8a94; font-size: 11px; margin-bottom: 8px; }
+  h2.sec { font-size: 13px; color: var(--n-fg-strong); margin: 4px 0 8px; }
+  .meta { color: var(--n-muted); font-size: 11px; margin-bottom: 8px; }
   .notes { user-select: text; line-height: 1.65; font-size: 12.5px; }
-  .notes h4 { color: #fff; font-size: 12.5px; margin: 12px 0 4px; }
-  .notes h3 { color: #fff; font-size: 13.5px; margin: 10px 0 4px; }
+  .notes h4 { color: var(--n-fg-strong); font-size: 12.5px; margin: 12px 0 4px; }
+  .notes h3 { color: var(--n-fg-strong); font-size: 13.5px; margin: 10px 0 4px; }
   .notes ul { margin: 2px 0 8px 18px; }
   .notes li { margin: 3px 0; }
   .notes p { margin: 4px 0; }
   .notes code {
-    background: #141416; border: 1px solid #2c2c33; border-radius: 3px;
-    padding: 0 4px; font-family: Consolas, monospace; font-size: 11.5px; color: #9cdcfe;
+    background: var(--n-surface); border: 1px solid var(--n-border); border-radius: 3px;
+    padding: 0 4px; font-family: Consolas, monospace; font-size: 11.5px; color: var(--n-code-fg);
   }
-  .notes .lnk { color: #4d86fe; }
-  .notes hr { border: none; border-top: 1px solid #2c2c33; margin: 10px 0; }
-  .empty { color: #8a8a94; padding: 18px 0; }
-  details.hist { border: 1px solid #2c2c33; border-radius: 6px; margin-top: 8px; background: #17171a; }
+  .notes .lnk { color: var(--n-accent); }
+  .notes hr { border: none; border-top: 1px solid var(--n-border); margin: 10px 0; }
+  .empty { color: var(--n-muted); padding: 18px 0; }
+  details.hist { border: 1px solid var(--n-border); border-radius: 6px; margin-top: 8px; background: var(--n-panel-bg); }
   details.hist > summary {
-    cursor: pointer; padding: 9px 12px; color: #c8c8d0; font-size: 12.5px; list-style: none;
+    cursor: pointer; padding: 9px 12px; color: var(--n-fg-summary); font-size: 12.5px; list-style: none;
   }
-  details.hist > summary::before { content: '▸ '; color: #8a8a94; }
+  details.hist > summary::before { content: '▸ '; color: var(--n-muted); }
   details.hist[open] > summary::before { content: '▾ '; }
-  details.hist > summary:hover { color: #fff; }
-  details.hist .item { border-top: 1px solid #242429; padding: 10px 12px; }
-  details.hist .item > summary { cursor: pointer; color: #b8b8c0; font-size: 12px; list-style: none; }
-  details.hist .item > summary::before { content: '▸ '; color: #8a8a94; }
+  details.hist > summary:hover { color: var(--n-fg-strong); }
+  details.hist .item { border-top: 1px solid var(--n-border-soft); padding: 10px 12px; }
+  details.hist .item > summary { cursor: pointer; color: var(--n-fg-item); font-size: 12px; list-style: none; }
+  details.hist .item > summary::before { content: '▸ '; color: var(--n-muted); }
   details.hist .item[open] > summary::before { content: '▾ '; }
-  details.hist .item > summary:hover { color: #fff; }
-  details.hist .item .ver { color: #4d86fe; font-weight: 600; }
+  details.hist .item > summary:hover { color: var(--n-fg-strong); }
+  details.hist .item .ver { color: var(--n-accent); font-weight: 600; }
   details.hist .item .meta { display: inline; margin-left: 8px; }
   details.hist .item .notes { padding: 6px 2px 2px; }
-  .foot { padding: 10px 22px 14px; border-top: 1px solid #2c2c33; flex: none; display: flex; justify-content: space-between; align-items: center; }
-  .foot .muted { color: #8a8a94; font-size: 11px; }
-  .loading { color: #8a8a94; padding: 14px 0; }
+  .foot { padding: 10px 22px 14px; border-top: 1px solid var(--n-border); flex: none; display: flex; justify-content: space-between; align-items: center; }
+  .foot .muted { color: var(--n-muted); font-size: 11px; }
+  .loading { color: var(--n-muted); padding: 14px 0; }
 
   /* ============ 更新流程视图（found / installing / done / failed） ============ */
   #view-update { padding: 22px 26px; }
@@ -84,42 +148,54 @@
   .ver { font-family: Consolas, monospace; }
   .tag {
     display: inline-block; padding: 1px 9px; border-radius: 9px; font-size: 11px;
-    background: rgba(87,171,90,.16); color: #7bc882; border: 1px solid rgba(87,171,90,.35);
+    background: var(--n-tag-bg); color: var(--n-tag-fg); border: 1px solid var(--n-tag-border);
   }
-  .muted { color: #a0a0ab; font-size: 12px; white-space: pre-line; }
+  .muted { color: var(--n-fg-soft); font-size: 12px; white-space: pre-line; }
   /* 不定进度条：npm install 无可靠百分比，滚动条 + 实时日志如实反映进度 */
-  .bar { height: 6px; border-radius: 3px; background: #2a2a30; overflow: hidden; margin: 14px 0 8px; flex: none; }
+  .bar { height: 6px; border-radius: 3px; background: var(--n-bar-bg); overflow: hidden; margin: 14px 0 8px; flex: none; }
   .bar > i {
     display: block; height: 100%; width: 40%; border-radius: 3px;
-    background: linear-gradient(90deg, #4f8ef7, #7ab2ff);
+    background: linear-gradient(90deg, var(--n-bar-1), var(--n-bar-2));
     animation: slide 1.2s ease-in-out infinite;
   }
   @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
   pre {
     flex: 1; min-height: 0; overflow-y: auto; margin-top: 10px; padding: 10px 12px;
-    background: #141416; border: 1px solid #2c2c33; border-radius: 6px;
-    font: 11px/1.5 Consolas, monospace; color: #9cdcfe;
+    background: var(--n-surface); border: 1px solid var(--n-border); border-radius: 6px;
+    font: 11px/1.5 Consolas, monospace; color: var(--n-code-fg);
     white-space: pre-wrap; word-break: break-all; user-select: text;
   }
-  h2.sec2 { font-size: 12.5px; color: #a0a0ab; font-weight: 600; margin: 14px 0 0; flex: none; }
+  h2.sec2 { font-size: 12.5px; color: var(--n-fg-soft); font-weight: 600; margin: 14px 0 0; flex: none; }
   .unotes {
     flex: 1; min-height: 0; overflow-y: auto; margin-top: 6px; padding: 8px 12px;
-    background: #141416; border: 1px solid #2c2c33; border-radius: 6px;
+    background: var(--n-surface); border: 1px solid var(--n-border); border-radius: 6px;
     user-select: text; line-height: 1.6; font-size: 12.5px;
   }
-  .unotes h4 { color: #fff; font-size: 12.5px; margin: 10px 0 4px; }
-  .unotes h3 { color: #fff; font-size: 13.5px; margin: 8px 0 4px; }
+  .unotes h4 { color: var(--n-fg-strong); font-size: 12.5px; margin: 10px 0 4px; }
+  .unotes h3 { color: var(--n-fg-strong); font-size: 13.5px; margin: 8px 0 4px; }
   .unotes ul { margin: 2px 0 8px 18px; }
   .unotes li { margin: 3px 0; }
   .unotes p { margin: 4px 0; }
   .unotes code {
-    background: #1b1b1f; border: 1px solid #2c2c33; border-radius: 3px;
-    padding: 0 4px; font-family: Consolas, monospace; font-size: 11.5px; color: #9cdcfe;
+    background: var(--n-bg); border: 1px solid var(--n-border); border-radius: 3px;
+    padding: 0 4px; font-family: Consolas, monospace; font-size: 11.5px; color: var(--n-code-fg);
   }
-  .unotes .lnk { color: #4d86fe; }
-  .unotes hr { border: none; border-top: 1px solid #2c2c33; margin: 8px 0; }
-  .unotes .empty { color: #8a8a94; }
+  .unotes .lnk { color: var(--n-accent); }
+  .unotes hr { border: none; border-top: 1px solid var(--n-border); margin: 8px 0; }
+  .unotes .empty { color: var(--n-muted); }
   .btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: auto; padding-top: 16px; flex: none; }
+  /* failed 标题在 DOM 里带内联 style="color:#f07178"（内联样式特异性最高，
+     只能靠 !important 覆盖），使其跟随主题而不动 DOM */
+  #view-update section.failed h1 { color: var(--n-danger) !important; }
+</style>
+<style>
+  /* ============ found 视图：可更新目标卡片（运行时 / 壳） ============ */
+  .tgt {
+    border: 1px solid var(--n-border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .tgt .urow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tgt .unotes { margin-top: 10px; max-height: 180px; overflow-y: auto; }
 </style>
 </head>
 <body data-view="notes">
@@ -151,17 +227,10 @@
 <div id="view-update">
 
   <section class="found">
-    <h1>发现新版本 <span class="ver" id="f-latest"></span></h1>
-    <div class="urow">
-      <span class="tag" id="f-channel"></span>
-      <span class="muted" id="f-meta"></span>
-    </div>
-    <p class="muted" id="f-detail" style="margin-top:8px"></p>
-    <h2 class="sec2">本次更新内容</h2>
-    <div class="unotes" id="f-notes"><div class="empty">正在获取官方发布说明…</div></div>
+    <h1>发现可用更新</h1>
+    <div id="f-targets"></div>
     <div class="btns">
       <button id="b-back-f">返回版本说明</button>
-      <button class="primary" id="b-install">立即更新</button>
     </div>
   </section>
 
@@ -346,13 +415,12 @@
       document.body.dataset.view = 'update'
       document.body.dataset.phase = ev.phase
       if (ev.phase === 'found') {
-        $('f-latest').textContent = 'v' + ev.latest
-        $('f-channel').textContent = ev.channel
-        $('f-meta').textContent = (ev.publishedAt ? '发布于 ' + ev.publishedAt : '') + ' · 当前 v' + ev.current
-        $('f-detail').textContent = '更新将安装到应用数据目录，安装期间服务短暂停止、完成后自动升级到新版，无需重启应用。\n' + ev.registry
-        $('f-notes').innerHTML = renderNotes(ev.notes) ||
-          '<div class="empty">正在获取官方发布说明…（拉取中；该版本也可能未同步到 GitHub Releases）</div>'
+        window.__shellFlow = false
+        renderFoundTargets(ev.targets || [], ev.current, ev.shellCurrent)
       } else if (ev.phase === 'installing') {
+        window.__shellFlow = false
+        const bar = document.querySelector('#view-update .bar i')
+        if (bar) bar.style.cssText = ''
         $('i-latest').textContent = 'v' + ev.version
         if (typeof ev.elapsedSec === 'number') startedAt = Date.now() - ev.elapsedSec * 1000
       } else if (ev.phase === 'done') {
@@ -373,6 +441,79 @@
       renderPrewarm()
     }
   })
+
+  /* ---- found 视图：按 targets 渲染可更新目标卡片（runtime / shell） ---- */
+  function renderFoundTargets(targets, current, shellCurrent) {
+    const box = $('f-targets')
+    box.innerHTML = targets.map((t) => {
+      if (t.kind === 'shell') {
+        const mb = t.size ? (t.size / 1048576).toFixed(1) + ' MB' : ''
+        return '<div class="tgt" data-kind="shell">' +
+          '<div class="urow"><h2 style="margin:0;font-size:15px">桌面壳 <span class="ver">v' + t.latest + '</span></h2>' +
+          (mb ? '<span class="muted">' + mb + '</span>' : '') + '</div>' +
+          '<p class="muted" style="margin:8px 0 0">当前壳 v' + (shellCurrent || '') + ' → v' + t.latest +
+          '。下载安装包后自动静默安装并重启，会话与设置不受影响。</p>' +
+          (t.notes ? '<div class="unotes">' + (renderNotes(t.notes) || '') + '</div>' : '') +
+          '<div class="btns"><button class="primary" data-act="shell">下载并安装</button></div></div>'
+      }
+      return '<div class="tgt" data-kind="runtime">' +
+        '<div class="urow"><h2 style="margin:0;font-size:15px">dsh 运行时 <span class="ver">v' + t.latest + '</span></h2>' +
+        '<span class="tag">' + (t.channel || '') + '</span>' +
+        (t.publishedAt ? '<span class="muted">发布于 ' + t.publishedAt + '</span>' : '') + '</div>' +
+        '<p class="muted" style="margin:8px 0 0">当前 v' + (current || '') + ' → v' + t.latest +
+        '。安装到应用数据目录，期间服务短暂停止、完成后自动升级，无需重启应用。</p>' +
+        '<div class="unotes">' + (renderNotes(t.notes) || '<div class="empty">正在获取官方发布说明…</div>') + '</div>' +
+        '<div class="btns"><button class="primary" data-act="runtime">立即更新</button></div></div>'
+    }).join('')
+  }
+
+  /* found 目标卡片动作（runtime: 运行时流；shell: 壳下载安装流） */
+  $('f-targets').addEventListener('click', (e) => {
+    const act = e.target && e.target.dataset ? e.target.dataset.act : ''
+    if (act === 'runtime') window.dshUpdate.start()
+    else if (act === 'shell') {
+      window.dshUpdate.shellCheck().then((r) => {
+        window.__shellLatest = (r && r.found) ? r : window.__shellLatest
+        window.__shellFlow = true
+        window.dshUpdate.shellDownload()
+      })
+    }
+  })
+
+  /* ---- 壳更新四阶段（复用 installing/done/failed 视图，与运行时流同一套交互） ---- */
+  if (typeof window.dshUpdate.onShellUpdateEvent === 'function') {
+    window.dshUpdate.onShellUpdateEvent((e) => {
+      if (e.type === 'download-start') {
+        phase = 'installing'
+        window.__shellFlow = true
+        document.body.dataset.view = 'update'
+        document.body.dataset.phase = 'installing'
+        $('i-latest').textContent = 'v' + e.latest
+        startedAt = Date.now()
+        $('i-status').textContent = '正在下载壳更新安装包…'
+        $('log').textContent = ''
+        const bar = document.querySelector('#view-update .bar i')
+        if (bar) { bar.style.animation = 'none'; bar.style.transform = 'none'; bar.style.width = '0%' }
+      } else if (e.type === 'download-progress') {
+        const bar = document.querySelector('#view-update .bar i')
+        if (bar) bar.style.width = e.percent + '%'
+        $('i-status').textContent = '正在下载壳更新安装包… ' + e.percent + '%（' +
+          (e.got / 1048576).toFixed(1) + ' / ' + (e.total / 1048576).toFixed(1) + ' MB）'
+      } else if (e.type === 'download-done') {
+        phase = 'done'
+        window.__shellFlow = true
+        document.body.dataset.phase = 'done'
+        $('d-latest').textContent = 'v' + ((window.__shellLatest && window.__shellLatest.latest) || '')
+        $('d-meta').textContent = '安装包下载完成。点击下方按钮将自动关闭应用、静默安装并拉起新版；会话与设置不受影响。'
+        $('b-restart').textContent = '安装并重启'
+      } else if (e.type === 'download-failed') {
+        phase = 'failed'
+        document.body.dataset.phase = 'failed'
+        $('x-detail').textContent = '壳更新下载失败：' + (e.error || '未知错误')
+        $('x-log').textContent = '可返回重新检查更新后再试（GitHub 连接不稳定时会重试三次）。'
+      }
+    })
+  }
 
   function backToNotes() {
     document.body.dataset.view = 'notes'
@@ -398,7 +539,6 @@
     }
   })
 
-  $('b-install').addEventListener('click', () => window.dshUpdate.start())
   /* 状态行里的新版本号可点：直接进更新视图（事件委托，状态行 3s 轮询重渲染不丢监听） */
   $('status').addEventListener('click', (e) => {
     if (e.target.classList && e.target.classList.contains('go-ver')) window.dshUpdate.openProgress()
@@ -408,11 +548,22 @@
   $('b-back-d').addEventListener('click', backToNotes)
   $('b-back-x').addEventListener('click', backToNotes)
   $('b-hide').addEventListener('click', () => window.dshUpdate.close())
-  $('b-restart').addEventListener('click', () => window.dshUpdate.restart())
+  /* done 视图的重启按钮按流程路由：壳流=静默安装并重启，运行时流=重启应用 */
+  $('b-restart').addEventListener('click', () => {
+    if (window.__shellFlow) window.dshUpdate.shellInstall()
+    else window.dshUpdate.restart()
+  })
   $('b-recheck-d').addEventListener('click', () => window.dshUpdate.recheck())
   $('b-recheck-x').addEventListener('click', () => window.dshUpdate.recheck())
   $('b-uclose').addEventListener('click', () => window.dshUpdate.close())
   $('b-close').addEventListener('click', () => window.close())
+
+  /* 跟随应用主题：主进程在加载完成与主题变化时推送 { dark }，仅切换 data-theme 属性 */
+  if (typeof window.dshUpdate.onNotesTheme === 'function') {
+    window.dshUpdate.onNotesTheme((data) => {
+      document.body.dataset.theme = data && data.dark ? 'dark' : 'light'
+    })
+  }
 
   init()
 </script>

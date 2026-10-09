@@ -70,6 +70,10 @@ const BAR_THEMES = {
   dark: { bg: '#181818', fg: '#9aa0a6' },
   light: { bg: '#f3f3f3', fg: '#55555a' },
 }
+// 顶栏强调色缓存：内容页全局主题（dsh-anime-theme）的 --dsh-anime-accent 镜像，
+// ''=无全局主题色（bar 回退深浅配色）。theme-changed 推 bar-theme 时随载荷带上
+// （不阻塞深浅切换），异步读到新值后再另推 bar-accent 事件刷新
+let barAccentCache = ''
 
 // ---------------------------------------------------------------- 桌面设置
 
@@ -158,6 +162,15 @@ function resolveDshInstall() {
   }
 
   const candidates = []
+
+  // dev 模式：desktop/dsh-runtime 常年落后于打包版平时应用内更新到的版本，
+  // 且更老的运行时对被上游 0.2.x 对齐过的 profile 会直接抛错无法启动——
+  // 优先复用打包版 userData 里已装好的运行时
+  if (!app.isPackaged) {
+    candidates.push(
+      path.join(process.env.APPDATA || '', 'DeepSeek Harness', 'dsh-runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+    )
+  }
 
   // 1. 应用内更新运行时（点版本号更新后的安装目录，优先级最高）
   candidates.push(
@@ -1431,7 +1444,7 @@ function pushBadgeState() {
   if (updateState) {
     payload = { state: updateState.phase, current: versionRef.value || '', version: updateState.version, detail: updateState.detail || '' }
   } else if (foundCtx) {
-    payload = { state: 'available', current: versionRef.value || '', version: foundCtx.latest }
+    payload = { state: 'available', current: versionRef.value || '', version: foundCtxLabel(foundCtx) }
   } else {
     payload = { state: 'idle', current: versionRef.value || '' }
   }
@@ -1449,6 +1462,13 @@ function pushUpdateState() {
   const { log, startedAt, ...rest } = updateState
   for (const line of log) sendUpdateEvent({ type: 'log', text: line })
   sendUpdateEvent({ type: 'phase', ...rest, elapsedSec: Math.round((Date.now() - startedAt) / 1000) })
+}
+
+/** foundCtx 的对外版本标签：优先运行时目标，否则壳目标（徽标/状态行显示用）。 */
+function foundCtxLabel(ctx) {
+  if (!ctx || !Array.isArray(ctx.targets) || ctx.targets.length === 0) return null
+  const rt = ctx.targets.find(t => t.kind === 'runtime')
+  return (rt || ctx.targets[0]).latest
 }
 
 // ---------------------------------------------------------------- 版本说明与更新窗口（单窗口）
@@ -1490,6 +1510,13 @@ function openNotesWindow() {
       log(`更新窗口已关闭，后台继续安装 v${updateState.version}`)
     }
     notesWin = null
+  })
+  // notes.html 默认深色：加载完成后按当前系统主题补设 data-theme；
+  // 之后的主题变化由 notes-theme 推送（theme-changed 与 nativeTheme updated 兜底）
+  notesWin.webContents.on('did-finish-load', () => {
+    const theme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+    notesWin.webContents.executeJavaScript(`document.body.dataset.theme = '${theme}'`)
+      .catch((err) => log(`notes 弹窗主题注入失败：${err.message}`))
   })
   notesWin.loadFile(path.join(APP_ROOT, 'notes.html'))
 }
@@ -1560,15 +1587,31 @@ function ensureClientPlatformHeader() {
 function ensureProfilePlugin() {
   try {
     const profiles = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
-    const src = path.join(profiles, 'node_modules', 'dsh-anime-theme')
     const dest = path.join(profiles, 'web', 'node_modules', 'dsh-anime-theme')
-    if (fs.existsSync(src) && !fs.existsSync(dest)) {
-      fs.mkdirSync(path.dirname(dest), { recursive: true })
-      fs.cpSync(src, dest, { recursive: true })
-      log(`主题插件已迁移到 profile 内（新版解析要求）：${dest}`)
+    const clientJs = path.join(dest, 'lib', 'client.js')
+    // 完整性判定：client.js 存在且含当前版本的功能标记。
+    // npm 对齐（应用启动/更新时）会把 registry 装不到的本地插件整个清掉——此时从这里自愈。
+    const intact = fs.existsSync(clientJs)
+      && fs.readFileSync(clientJs, 'utf8').includes('syncSidebarGlass')
+    if (intact) return
+    // 壳内置母本（assets/plugin，随打包更新）优先；缺母本时退回旧位置迁移（老版本升级路径）
+    const bundled = path.join(ASSET_DIR, 'plugin', 'lib', 'client.js')
+    let src = null
+    if (fs.existsSync(bundled) && fs.readFileSync(bundled, 'utf8').includes('syncSidebarGlass')) {
+      src = path.join(ASSET_DIR, 'plugin')
+    } else {
+      const legacy = path.join(profiles, 'node_modules', 'dsh-anime-theme')
+      if (fs.existsSync(legacy)) src = legacy
     }
+    if (!src) {
+      log('主题插件缺失且无可用母本，跳过恢复')
+      return
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true })
+    fs.cpSync(src, dest, { recursive: true })
+    log(`主题插件已恢复：${dest}（来源：${src === bundled ? '壳内置母本' : '旧位置迁移'}）`)
   } catch (err) {
-    log(`主题插件迁移失败：${err.message}`)
+    log(`主题插件恢复失败：${err.message}`)
   }
 }
 
@@ -1780,43 +1823,153 @@ async function fetchReleaseBody(version) {
   }
 }
 
-/** 检查更新（结果回给渲染层在窗口内就地展示，不再弹任何系统/独立窗口）：
- *  返回 { ok, uptodate, current, latest } 或 { ok:false, error }；发现新版本时
- *  置 foundCtx 并打开版本说明窗口进入 found 视图。 */
-async function handleCheckUpdate() {
-  const current = versionRef.value || ''
+/* ================= 壳自身更新（GitHub Releases → NSIS 静默安装） =================
+ * 与 dsh 运行时更新（npm 换包）相互独立：壳更新下载最新 Release 的 Windows 安装包，
+ * 下载完成后经安装器 /S 静默安装（customInit 会 taskkill 旧实例），事件推给 notes 弹窗展示。 */
+const SHELL_REPO_API = 'https://api.github.com/repos/huantest2024/dsh/releases/latest'
+let shellUpdateCtx = null // { current, latest, notes, url, size, path, percent, downloading }
+
+async function fetchJsonWithRetry(url, tries = 3) {
+  let lastErr = null
+  for (let i = 0; i < tries; i++) {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 15000)
+      const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'dsh-desktop-updater' } })
+      clearTimeout(timer)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return await res.json()
+    } catch (err) {
+      lastErr = err
+      if (i < tries - 1) await new Promise(r => setTimeout(r, 1500))
+    }
+  }
+  throw lastErr
+}
+
+function sendShellEvent(payload) {
+  if (notesWin && !notesWin.isDestroyed()) notesWin.webContents.send('shell-update-event', payload)
+}
+
+async function handleShellCheckUpdate() {
+  const current = app.getVersion()
   try {
-    const info = await fetchPackument()
-    const pick = pickNewest(info)
-    if (!pick) throw new Error('registry 未返回任何版本')
-    const latestTag = (info['dist-tags'] || {}).latest || '未知'
-    log(`更新检测：当前 ${current || '未知'}，全渠道最新 ${pick.version}（${channelLabel(pick)}），latest 标签=${latestTag}`)
-    if (current && semverCompare(pick.version, current) <= 0) {
+    const rel = await fetchJsonWithRetry(SHELL_REPO_API)
+    const latest = String(rel.tag_name || '').replace(/^v/, '')
+    if (!latest || semverCompare(latest, current) <= 0) {
       return { ok: true, uptodate: true, current }
     }
-    pendingUpdate = pick
-    foundCtx = {
-      current: current || '未知',
-      latest: pick.version,
-      channel: channelLabel(pick),
-      publishedAt: pick.publishedAt ? pick.publishedAt.slice(0, 10) : '',
-      registry: NPM_REGISTRY,
-      notes: '',
+    const asset = (rel.assets || []).find(a => /\.exe$/i.test(a.name || '') && /setup/i.test(a.name))
+    if (!asset) return { ok: false, error: '最新 Release 未找到 Windows 安装包（Setup.exe）资产' }
+    shellUpdateCtx = {
+      current, latest, notes: rel.body || '',
+      url: asset.browser_download_url, size: asset.size || 0,
+      path: null, percent: 0, downloading: false,
     }
-    pushBadgeState()
-    openNotesWindow()
-    // 发布说明走 GitHub（15s 超时才兜缓存）不能挡在跳转前面——曾致点「检查更新」
-    // 数秒无反应被连点。先带占位说明跳转，说明拉到后再补发 found 事件刷新内容。
-    fetchReleaseBody(pick.version).then((body) => {
-      if (!foundCtx || foundCtx.latest !== pick.version) return
-      foundCtx.notes = body
-      sendUpdateEvent({ type: 'phase', phase: 'found', ...foundCtx })
-    }).catch(() => { /* 说明拿不到就保持占位文案 */ })
-    return { ok: true, found: true, latest: pick.version }
+    log(`壳更新检测：当前 ${current} → 最新 ${latest}（${Math.round(asset.size / 1048576)}MB）`)
+    return { ok: true, found: true, current, latest, size: asset.size, notes: rel.body || '' }
   } catch (err) {
-    log(`更新检测失败：${err.message}`)
+    log(`壳更新检测失败：${err.message}`)
     return { ok: false, error: err.message }
   }
+}
+
+function handleShellDownload() {
+  if (!shellUpdateCtx || !shellUpdateCtx.url) return { ok: false, error: '尚未检查到壳更新' }
+  if (shellUpdateCtx.downloading) return { ok: true }
+  shellUpdateCtx.downloading = true
+  const dest = path.join(os.tmpdir(), `dsh-desktop-setup-${shellUpdateCtx.latest}.exe`)
+  sendShellEvent({ type: 'download-start', latest: shellUpdateCtx.latest, total: shellUpdateCtx.size })
+  fetch(shellUpdateCtx.url, { headers: { 'User-Agent': 'dsh-desktop-updater' } }).then(res => {
+    if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}`)
+    const total = parseInt(res.headers.get('content-length') || '0', 10) || shellUpdateCtx.size || 0
+    const out = fs.createWriteStream(dest)
+    let got = 0
+    res.body.on('data', chunk => {
+      got += chunk.length
+      if (total) {
+        const pct = Math.floor((got / total) * 100)
+        if (pct !== shellUpdateCtx.percent) {
+          shellUpdateCtx.percent = pct
+          sendShellEvent({ type: 'download-progress', percent: pct, got, total })
+        }
+      }
+    })
+    res.body.pipe(out)
+    out.on('finish', () => {
+      shellUpdateCtx.path = dest
+      shellUpdateCtx.downloading = false
+      log(`壳更新安装包下载完成：${dest}`)
+      sendShellEvent({ type: 'download-done', path: dest })
+    })
+    out.on('error', err => {
+      shellUpdateCtx.downloading = false
+      sendShellEvent({ type: 'download-failed', error: err.message })
+    })
+  }).catch(err => {
+    shellUpdateCtx.downloading = false
+    sendShellEvent({ type: 'download-failed', error: err.message })
+  })
+  return { ok: true }
+}
+
+function handleShellInstall() {
+  if (!shellUpdateCtx || !shellUpdateCtx.path) return { ok: false, error: '安装包未就绪' }
+  const installer = shellUpdateCtx.path
+  log(`启动壳更新安装器：${installer}`)
+  // 安装器 customInit 负责 taskkill 旧实例；这里延迟退出避免安装器 exe 本身被占用
+  spawn(installer, ['/S'], { detached: true, stdio: 'ignore' }).unref()
+  setTimeout(() => app.exit(0), 1200)
+  return { ok: true }
+}
+
+/** 检查更新（结果回给渲染层在窗口内就地展示，不再弹任何系统/独立窗口）：
+ *  同一次检查并行覆盖两个目标——dsh 运行时（npm registry）与壳自身（GitHub Releases）。
+ *  任一发现新版本即进 found 视图；foundCtx.targets 描述每个可更新目标（kind: runtime | shell），
+ *  渲染层按 targets 渲染并路由安装动作。返回 { ok, uptodate, current } 或 { ok:false, error }。 */
+async function handleCheckUpdate() {
+  const current = versionRef.value || ''
+  const [runtimePick, shellInfo] = await Promise.all([
+    (async () => { try { return pickNewest(await fetchPackument()) } catch { return null } })(),
+    handleShellCheckUpdate().catch(() => null),
+  ])
+  const runtimeNew = runtimePick && current && semverCompare(runtimePick.version, current) > 0
+  const shellNew = shellInfo && shellInfo.ok && shellInfo.found
+  if (!runtimePick && (!shellInfo || !shellInfo.ok)) {
+    // 双源都拉不到才算失败（单源失败不影响另一源的检查结果）
+    return { ok: false, error: '运行时与壳的更新源都无法访问（GitHub/registry 连接不稳定，可稍后重试）' }
+  }
+  log(`更新检测：运行时 ${current || '未知'}→${runtimePick ? runtimePick.version : '?'}${runtimeNew ? '（有更新）' : ''}；壳 ${app.getVersion()}→${shellNew ? shellInfo.latest : '最新'}${shellNew ? '（有更新）' : ''}`)
+
+  if (!runtimeNew && !shellNew) {
+    return { ok: true, uptodate: true, current }
+  }
+
+  foundCtx = { current: current || '未知', shellCurrent: app.getVersion(), targets: [], notes: '' }
+  if (runtimeNew) {
+    pendingUpdate = runtimePick
+    foundCtx.targets.push({
+      kind: 'runtime', latest: runtimePick.version, channel: channelLabel(runtimePick),
+      publishedAt: runtimePick.publishedAt ? runtimePick.publishedAt.slice(0, 10) : '',
+    })
+  }
+  if (shellNew) {
+    foundCtx.targets.push({
+      kind: 'shell', latest: shellInfo.latest, size: shellInfo.size, notes: shellInfo.notes,
+    })
+  }
+  pushBadgeState()
+  openNotesWindow()
+  // 运行时发布说明走 GitHub（15s 超时才兜缓存）不能挡在跳转前面——先带占位跳转，说明拉到后补发。
+  if (runtimeNew) {
+    fetchReleaseBody(runtimePick.version).then((body) => {
+      if (!foundCtx) return
+      const t = foundCtx.targets.find(x => x.kind === 'runtime')
+      if (t) t.notes = body
+      sendUpdateEvent({ type: 'phase', phase: 'found', ...foundCtx })
+    }).catch(() => { /* 说明拿不到就保持占位文案 */ })
+  }
+  return { ok: true, found: true }
 }
 
 // ---------------------------------------------------------------- 托盘与关闭行为
@@ -1921,13 +2074,42 @@ if (!app.requestSingleInstanceLock()) {
     log(`dsh CLI：${install ? install.entry : '（npx 兜底）'}，版本：${versionRef.value || '未知'}`)
 
     // 主题联动：内容页 data-ds-dark-theme 变化 → 自绘顶栏换配色（托盘图标跟随深浅换色）
-    ipcMain.on('theme-changed', (_event, isDark) => {
+    ipcMain.on('theme-changed', (event, isDark) => {
       const mode = isDark ? 'dark' : 'light'
       nativeTheme.themeSource = mode
       if (barView && !barView.webContents.isDestroyed()) {
-        barView.webContents.send('bar-theme', { dark: !!isDark, ...BAR_THEMES[mode] })
+        barView.webContents.send('bar-theme', { dark: !!isDark, accent: barAccentCache, ...BAR_THEMES[mode] })
+      }
+      // 全局主题强调色联动：sender 就是内容页 webContents，用它异步读 documentElement
+      // 上的 --dsh-anime-accent（读取不阻塞上面的深浅切换）。读到后推 bar-accent 给顶栏，
+      // 空串=无全局主题色（bar 回退深浅配色）；读失败/页面已销毁则静默跳过
+      try {
+        const sender = event.sender
+        if (sender && !sender.isDestroyed()) {
+          sender.executeJavaScript(
+            "(function(){try{return getComputedStyle(document.documentElement)" +
+            ".getPropertyValue('--dsh-anime-accent').trim()}catch(e){return ''}})()",
+          ).then((accent) => {
+            barAccentCache = String(accent || '')
+            if (barView && !barView.webContents.isDestroyed()) {
+              barView.webContents.send('bar-accent', { accent: barAccentCache })
+            }
+          }).catch(() => { /* 读失败跳过：顶栏保持现有配色 */ })
+        }
+      } catch { /* 读失败跳过 */ }
+      // notes 弹窗可能未打开，推送前必须判空
+      if (notesWin && !notesWin.isDestroyed()) {
+        notesWin.webContents.send('notes-theme', { dark: !!isDark })
       }
       if (tray && !tray.isDestroyed()) tray.setImage(trayIconPath())
+    })
+
+    // 兜底：系统层主题变化（theme-changed 只覆盖内容页主动上报的链路）也同步推给 notes 弹窗；
+    // notes 未打开时静默跳过。全文件仅此一处注册，不会重复。
+    nativeTheme.on('updated', () => {
+      if (notesWin && !notesWin.isDestroyed()) {
+        notesWin.webContents.send('notes-theme', { dark: nativeTheme.shouldUseDarkColors })
+      }
     })
 
     // 自绘顶栏按钮动作：窗口控制走窗口本体（close 走询问/托盘逻辑），
@@ -1983,7 +2165,7 @@ if (!app.requestSingleInstanceLock()) {
       update: updateState
         ? { phase: updateState.phase, version: updateState.version, detail: updateState.detail || '' }
         : null,
-      available: foundCtx ? foundCtx.latest : null,
+      available: foundCtx ? foundCtxLabel(foundCtx) : null,
     }))
     ipcMain.on('open-notes', () => openNotesWindow())
     ipcMain.on('update:open-progress', () => openNotesWindow())
@@ -2008,6 +2190,11 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('update:close', () => {
       if (notesWin && !notesWin.isDestroyed()) notesWin.close()
     })
+    // 壳自身更新（与上面的 dsh 运行时更新独立）
+    ipcMain.handle('shell-info', () => ({ version: app.getVersion() }))
+    ipcMain.handle('shell-update:check', () => handleShellCheckUpdate())
+    ipcMain.handle('shell-update:download', () => handleShellDownload())
+    ipcMain.handle('shell-update:install', () => handleShellInstall())
     ipcMain.handle('get-settings', () => readSettings())
 
     createWindow(splashGifPath)
