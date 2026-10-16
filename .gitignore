@@ -43,3 +43,13 @@ nul
 pelican-bicycle.html
 prompt-logo.json
 videos/
+
+# 本地工具与排障产物（勿入库）
+official-desktop-test/
+out/
+.zcode/
+.zcodeignore
+.mimosa/
+.v2c/
+.video_agent/
+dsh-anime-theme/.mimosa/
