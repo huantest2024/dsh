@@ -319,11 +319,14 @@ window.__ModuleLoader__.load({
         var blur = 'backdrop-filter: blur(16px) saturate(1.15); -webkit-backdrop-filter: blur(16px) saturate(1.15);'
 
         out.push(
-          /* 侧栏 → 悬浮玻璃卡片：四角对称圆角；右缘无外边距（拉宽手柄定位一致） */
-          'html body [class*="sidebarCol"] { margin: 12px 0 12px 12px; border-radius: 20px; }',
+          /* 侧栏 → 悬浮玻璃卡片：四角对称圆角；左右边距对称（原生拉宽手柄钉在轨道边缘，与卡片边距无关） */
+          'html body [class*="sidebarCol"] { margin: 12px 12px 12px 12px; border-radius: 20px; }',
           'html body [class*="sidebarCol"] { background: ' + glassDark + ' !important; ' + blur +
           ' border: 1px solid rgba(255,255,255,0.09);' +
           ' box-shadow: inset 0 1px rgba(255,255,255,0.07), 0 10px 34px rgba(0,0,0,0.35) !important; }',
+          /* 切换/拖拽动画期间（JS 挂 .dsh-anim）：暂停 backdrop-filter——宽度动画×模糊
+             每帧重算是掉帧大户；渐变底色保留，视觉上玻璃感暂代、动完即恢复 */
+          'html body [class*="sidebarCol"].dsh-anim { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }',
           'html body:not([data-ds-dark-theme]) [class*="sidebarCol"] { background: ' + glassLight + ' !important;' +
           ' border: 1px solid rgba(255,255,255,0.65); box-shadow: inset 0 1px #fff, 0 10px 30px rgba(80,90,120,0.16) !important; }',
           /* 侧栏加边距后内部多级元素仍按 280px 固定宽排版，会话/工作区行会溢出卡片：
@@ -1230,9 +1233,76 @@ window.__ModuleLoader__.load({
       var w = col.getBoundingClientRect().width
       if (w <= 0) return
       var collapsed = w < 100
-      col.style.margin = collapsed ? '8px 0 8px 8px' : '12px 0 12px 12px'
+      col.style.margin = collapsed ? '8px 0 8px 8px' : '12px 12px 12px 12px'
       col.style.borderRadius = collapsed ? '999px' : '20px'
       document.documentElement.dataset.dshSidebarCollapsed = collapsed ? '1' : '0'
+      syncSidebarTrack()
+    }
+
+    /* 悬浮边距会把原生 280px 内容卡压窄、裁掉行尾时间标签（内容根节点是固定 280px 排版）。
+       展开态把 frame 第一列轨道加宽 24px（左右 margin 合计），inner 完整保留。
+       **基准只认 dsh 的原始写入**：记住自己上一次写的值，一致=稳定态跳过，不一致才是
+       dsh 新基准→+24 并记住（禁止"量自己写自己"——主题 width:100% 会造成每轮+24 失控正反馈）。
+       性能三则：① 折叠判定解析轨道值（<100px），零强制回流；② dsh 切换侧栏会重渲染
+       frame 元素，观察器发现元素更换即重挂（否则 +24 迟到 600ms，动画放完二次滑动）；
+       ③ 动画期间给卡片挂 .dsh-anim 暂停 backdrop-filter（宽度动画×模糊每帧重算是
+       掉帧大户），transitionend/兜底计时恢复。 */
+    var sidebarTrackObs = null
+    var sidebarTrackWatchEl = null
+    var sidebarTrackLast = null
+    var sidebarAnimTimer = null
+    function syncSidebarTrack() {
+      var col0 = document.querySelector('[class*="sidebarCol"]')
+      var frame0 = col0 && col0.parentElement
+      if (!frame0 || frame0 === document.body) return
+
+      var parseTrack = function (frame) {
+        var m = /^([\d.]+px)([\s\S]*)$/.exec(frame.style.gridTemplateColumns || '')
+        return m ? { cur: m[1], rest: m[2] } : null
+      }
+      var apply = function () {
+        var col = document.querySelector('[class*="sidebarCol"]')
+        var frame = col && col.parentElement
+        if (!col || !frame) return
+        var t = parseTrack(frame)
+        if (!t || t.cur === sidebarTrackLast) return
+        if (parseFloat(t.cur) < 100) { sidebarTrackLast = null; return } /* 折叠：dsh 的值直接用 */
+        var want = (parseFloat(t.cur) + 24) + 'px'
+        frame.style.gridTemplateColumns = want + t.rest
+        sidebarTrackLast = want
+        var handle = frame.querySelector('[class*="handle"]')
+        if (handle && handle.style.left) handle.style.left = want
+      }
+      var restoreGlass = function () {
+        var c = document.querySelector('[class*="sidebarCol"]')
+        if (c) c.classList.remove('dsh-anim')
+      }
+      var onStyle = function () {
+        var col = document.querySelector('[class*="sidebarCol"]')
+        var frame = col && col.parentElement
+        if (!col || !frame) return
+        var t = parseTrack(frame)
+        if (t && t.cur === sidebarTrackLast) return /* 自己写的稳定值：不动也不暂停玻璃 */
+        /* 大幅变更（切换/拖拽起步）→ 动画期暂停玻璃模糊，过渡结束恢复 */
+        col.classList.add('dsh-anim')
+        clearTimeout(sidebarAnimTimer)
+        sidebarAnimTimer = setTimeout(restoreGlass, 420)
+        frame.addEventListener('transitionend', function (ev) {
+          if (ev && ev.propertyName && ev.propertyName.indexOf('grid-template') < 0) return
+          clearTimeout(sidebarAnimTimer)
+          restoreGlass()
+        }, { once: true })
+        apply()
+        if (sidebarTrackWatchEl !== frame) reobserve(frame)
+      }
+      var reobserve = function (frame) {
+        if (sidebarTrackObs) sidebarTrackObs.disconnect()
+        sidebarTrackWatchEl = frame
+        sidebarTrackObs = new MutationObserver(onStyle)
+        sidebarTrackObs.observe(frame, { attributes: true, attributeFilter: ['style'] })
+      }
+      apply()
+      if (sidebarTrackWatchEl !== frame0) reobserve(frame0)
     }
 
     /* ---------------- 渲染编排 ---------------- */
