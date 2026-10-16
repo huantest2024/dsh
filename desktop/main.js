@@ -53,6 +53,11 @@ const PRESTART_STATE_FILE = path.join(USER_DATA_DIR, 'dsh-prestart-state.json')
 const PRESTART_HELPER_JS = path.join(USER_DATA_DIR, 'dsh-prestart.js')
 const PRESTART_VBS = path.join(USER_DATA_DIR, 'dsh-prestart.vbs')
 const PRESTART_SERVER_LOG = path.join(LOG_DIR, 'prestart-server.log')
+// 服务常驻化后应用自身 spawn 的服务也走分离模式，stdout/stderr 直写此文件
+// （管道 stdio 在应用退出后断管，文件 stdio 让服务在应用会话外存活）
+const SERVICE_STDOUT_LOG = path.join(LOG_DIR, 'service-stdout.log')
+// 服务看门狗脚本（交接时写入 userData，应用自身 exe 以 node 模式拉起）
+const SERVICE_WATCHDOG_JS = path.join(USER_DATA_DIR, 'dsh-service-watchdog.js')
 const PRESTART_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
 const PRESTART_RUN_NAME = 'DeepSeekHarnessPrestart'
 // 更新回退锚点：runInstall 前写入「更新前版本」，新版本启动失败时据此恢复到同版本线
@@ -167,8 +172,11 @@ function resolveDshInstall() {
   // 且更老的运行时对被上游 0.2.x 对齐过的 profile 会直接抛错无法启动——
   // 优先复用打包版 userData 里已装好的运行时
   if (!app.isPackaged) {
+    const appData = process.env.APPDATA || ''
     candidates.push(
-      path.join(process.env.APPDATA || '', 'DeepSeek Harness', 'dsh-runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      path.join(appData, 'DSH Desktop', 'dsh-runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      // 旧 productName 时期的 userData 目录，改名前的存量运行时兜底
+      path.join(appData, 'DeepSeek Harness', 'dsh-runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
     )
   }
 
@@ -279,6 +287,11 @@ function killPidTree(pid) {
 let serverProc = null
 let serverPort = null
 let serverUrl = null
+// 服务常驻化：正常退出时保留服务（写接管状态+看门狗），下次启动直接采纳（~1.7s 完整界面）；
+// 更新重启/启动失败等场景置 false 走原有「杀服务」路径
+let keepServiceOnExit = true
+// 最近一次 bringUpService 使用的 CLI 入口，交接状态文件按它做采纳校验
+let lastInstallEntry = null
 // 采纳的登录预热服务进程（非本应用 spawn，退出时同样要回收）
 let adoptedServerPid = null
 
@@ -321,26 +334,18 @@ function startServer(cliEntry, nodeExe, port) {
     }
   }
 
+  // 分离 + 文件 stdio：服务独立于应用会话存活（常驻化前提）——应用退出不牵连服务，
+  // 也不会因 stdout 管道断裂产生 EPIPE 类问题（预热 helper 同款手法）
+  const outFd = fs.openSync(SERVICE_STDOUT_LOG, 'w')
   serverProc = spawn(cmd, args, {
     env,
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+    stdio: ['ignore', outFd, outFd],
   })
+  serverProc.unref()
 
-  serverProc.stdout.on('data', (buf) => {
-    const text = buf.toString()
-    fs.appendFileSync(path.join(LOG_DIR, 'server.log'), text)
-    // alpha.4 起服务 URL 带 ?token=…（缺 token 页面 401），因此捕获完整地址而非仅端口
-    const m = text.match(/dsh web: (http:\/\/127\.0\.0\.1:\d+[^\s]*)/)
-    if (m && !serverUrl) {
-      serverUrl = m[1]
-      serverPort = Number(serverUrl.match(/:(\d+)/)[1])
-      log(`从服务输出捕获地址：${serverUrl}`)
-    }
-  })
-  serverProc.stderr.on('data', (buf) => {
-    fs.appendFileSync(path.join(LOG_DIR, 'server.log'), buf.toString())
-  })
+  // 服务输出已直写 SERVICE_STDOUT_LOG（URL 带 ?token=，由 waitForServer 轮询该文件捕获）
   serverProc.on('exit', (code) => {
     log(`dsh web 进程退出（code=${code}）`)
     serverProc = null
@@ -359,14 +364,96 @@ function stopServer() {
   })
 }
 
+// ---------------------------------------------------------------- 服务常驻（退出不杀，下次秒开）
+
+/** 正常退出时保留服务：写接管状态文件（与登录预热同格式，tryAdoptPrestarted 的
+    全部护栏——entry 比对/pid 存活/URL 探活——原样生效）+ 挂 4h 看门狗。
+    没有活服务或还没拿到 URL（启动中途退出）时退回原有「杀服务」路径。 */
+function handoffServer() {
+  const spawnedAlive = serverProc && serverProc.exitCode === null
+  const pid = spawnedAlive ? serverProc.pid : adoptedServerPid
+  if (!pid || !serverUrl || !lastInstallEntry) return stopServer()
+  try {
+    fs.writeFileSync(PRESTART_STATE_FILE, JSON.stringify({
+      entry: lastInstallEntry,
+      pid,
+      url: serverUrl,
+      port: serverPort,
+      startedAt: Date.now(),
+      exitCode: null,
+    }))
+    spawnServiceWatchdog(pid)
+    log(`服务常驻交接（pid=${pid}，${serverUrl}），下次启动直接采纳`)
+  } catch (err) {
+    log(`服务交接失败，退回停止路径：${err.message}`)
+    return stopServer()
+  }
+}
+
+/** 4 小时看门狗：到点若应用进程已不存在则回收常驻服务（防「退出后再也不开」
+    导致 node 常驻吃内存）；应用还活着（服务在用）则安静退出，之后应用再退出时
+    会挂新的看门狗。脚本写进 userData 再拉起（预热 helper 同款手法，避免内联转义）；
+    以应用自身 exe 的 node 模式运行（ELECTRON_RUN_AS_NODE，官方壳同款）。 */
+const SERVICE_WATCHDOG_SRC = [
+  "const cp = require('child_process')",
+  'const pid = Number(process.argv[2] || 0)',
+  'const exeName = process.argv[3]',
+  '// 看门狗自身也是 exeName 进程（node 模式跑在应用 exe 里），按名查活必须排除自己',
+  'setTimeout(() => {',
+  '  try {',
+  "    const out = cp.execSync('tasklist /FI \"IMAGENAME eq ' + exeName + '\" /FO CSV /NH', { encoding: 'utf8' })",
+  "    const alive = out.split('\\n')",
+  `      .filter(l => l.includes(exeName))`,
+  '      .filter(l => {',
+  '        const m = l.match(/"(\\d+)"/)',
+  '        return !(m && m[1] === String(process.pid))',
+  '      })',
+  '    if (alive.length) process.exit(0)',
+  '  } catch {}',
+  "  try { cp.execSync('taskkill /T /F /PID ' + pid) } catch {}",
+  '}, 4 * 60 * 60 * 1000)',
+  '',
+].join('\n')
+
+function spawnServiceWatchdog(pid) {
+  const exeName = path.basename(process.execPath)
+  try {
+    fs.writeFileSync(SERVICE_WATCHDOG_JS, SERVICE_WATCHDOG_SRC)
+    const child = spawn(process.execPath, [SERVICE_WATCHDOG_JS, String(pid), exeName], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore',
+    })
+    child.unref()
+    log(`已挂服务看门狗（pid=${pid}，watchdog=${child.pid}，4h）`)
+  } catch (err) {
+    log(`看门狗挂载失败（服务将驻留至系统重启）：${err.message}`)
+  }
+}
+
 function waitForServer(timeoutMs) {
   const startedAt = Date.now()
+  // 服务地址（含 token）从分离服务的输出文件捕获——spawn 已无 stdout 管道
+  const captureUrlFromLog = () => {
+    if (serverUrl) return
+    try {
+      const text = fs.readFileSync(SERVICE_STDOUT_LOG, 'utf8')
+      const m = text.match(/dsh web: (http:\/\/127\.0\.0\.1:\d+[^\s]*)/)
+      if (m) {
+        serverUrl = m[1]
+        serverPort = Number(serverUrl.match(/:(\d+)/)[1])
+        log(`从服务输出捕获地址：${serverUrl}`)
+      }
+    } catch { /* 文件尚未创建等情况，下一轮再试 */ }
+  }
   return new Promise((resolve, reject) => {
     const tick = async () => {
       try {
+        if (!serverUrl) captureUrlFromLog()
         if (serverUrl && serverPort && (await probeHttp(serverPort))) return resolve(serverUrl)
         if (!serverProc || serverProc.exitCode !== null) {
-          return reject(new Error('dsh web 进程已退出，详见 logs/server.log'))
+          return reject(new Error('dsh web 进程已退出，详见 logs/service-stdout.log'))
         }
         if (Date.now() - startedAt > timeoutMs) {
           return reject(new Error(`等待服务超时（${timeoutMs / 1000}s），详见 logs/server.log`))
@@ -952,7 +1039,7 @@ function createWindow(splashGifPath) {
       type: 'question',
       title: '关闭 DeepSeek Harness',
       message: '关闭窗口时希望执行什么操作？',
-      detail: '最小化到托盘会保持服务运行，可随时从托盘恢复；直接退出将停止 dsh 服务。',
+      detail: '最小化到托盘会保持服务运行，可随时从托盘恢复；直接退出后服务将在后台保留约 4 小时以便下次秒开（到期自动结束）。',
       checkboxLabel: '记住我的选择（之后可在托盘右键菜单中修改）',
       buttons: ['最小化到托盘', '直接退出'],
       defaultId: 0,
@@ -1046,6 +1133,7 @@ async function loadMainUi(url) {
 /** 启动 dsh web 服务并让主窗口加载界面（可重试；重试前会先回收旧服务进程）。 */
 async function bringUpService(install) {
   const cliEntry = install ? install.entry : null
+  lastInstallEntry = cliEntry // 服务常驻交接状态文件的采纳校验入口
   const nodeExe = cliEntry ? resolveNodeExe() : null
   if (cliEntry && !nodeExe) {
     throw new Error('找到 dsh CLI 但找不到 node 可执行文件（可设置 DSH_NODE_PATH 指定）')
@@ -1055,7 +1143,7 @@ async function bringUpService(install) {
   serverUrl = null
   ensureClientPlatformHeader() // 平台 422 修复：必须在服务 spawn 前落盘（每次启动幂等）
 
-  splashStatus('正在启动 DeepSeek Harness 服务 …')
+  splashStatus('正在启动服务 …')
   let viaAdopt = false
   const adoptedUrl = await tryAdoptPrestarted(cliEntry)
   if (adoptedUrl) {
@@ -2009,10 +2097,10 @@ function rebuildTrayMenu() {
     { type: 'separator' },
     {
       label: '退出',
-      click: async () => {
+      click: () => {
         isQuitting = true
         allowClose = true
-        await stopServer()
+        // 服务交接到 before-quit 统一处理（常驻保留，下次启动秒开）
         app.quit()
       },
     },
@@ -2182,6 +2270,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.on('update:restart', async () => {
       isQuitting = true
+      keepServiceOnExit = false // 运行时已更新：旧服务不能被下次启动采纳，必须重启
       if (notesWin && !notesWin.isDestroyed()) notesWin.destroy()
       await stopServer()
       app.relaunch()
@@ -2205,6 +2294,7 @@ if (!app.requestSingleInstanceLock()) {
       // 又被"关闭行为询问"拦成最小化到托盘，导致进程永远退不出去
       isQuitting = true
       allowClose = true
+      keepServiceOnExit = false // 启动失败路径不保留可能不健康的服务
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
       dialog.showErrorBox('DeepSeek Harness 启动失败', `${err.message}\n\n日志目录：${LOG_DIR}`)
       app.exit(0)
@@ -2278,14 +2368,19 @@ if (!app.requestSingleInstanceLock()) {
     app.exit(1)
   })
 
-  app.on('window-all-closed', async () => {
-    await stopServer()
+  app.on('window-all-closed', () => {
     app.quit()
   })
 
-  app.on('before-quit', () => { stopServer() })
+  app.on('before-quit', () => {
+    // 服务常驻化：正常退出保留服务并交接（tryAdoptPrestarted 下次启动直接采纳）；
+    // keepServiceOnExit=false（更新重启/启动失败）时维持原有「杀服务」行为
+    if (keepServiceOnExit) handoffServer()
+    else stopServer()
+  })
 
   process.on('exit', () => {
+    if (keepServiceOnExit) return // 常驻服务由交接状态 + 看门狗管理，不随应用退出而死
     const pid = serverProc && serverProc.exitCode === null ? serverProc.pid : adoptedServerPid
     if (pid) {
       try { process.kill(pid) } catch { /* 忽略 */ }

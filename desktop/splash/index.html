@@ -4,130 +4,189 @@
 <meta charset="UTF-8" />
 <title>DeepSeek Harness</title>
 <style>
-  :root {
-    --zc-bg: #181818;
-    --zc-panel: #1f1f1f;
-    --zc-border: #2b2b2b;
-    --zc-text: #cccccc;
-    --zc-dim: #8a8a8a;
-    --zc-blue: #4d86fe;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
   body {
-    background:
-      radial-gradient(1200px 700px at 75% -10%, rgba(77, 134, 254, 0.10), transparent 60%),
-      radial-gradient(900px 600px at -10% 110%, rgba(255, 138, 180, 0.07), transparent 55%),
-      var(--zc-bg);
-    color: var(--zc-text);
+    background: #181818;
     font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
+    /* 本页严禁任何 -webkit-app-region：整页级 drag 区域会并进窗口判定区域且
+       不随后续导航回收，毒化顶栏按钮的点击（bar.html 顶栏同款教训，弃用该机制） */
   }
   /* 整页过渡容器：退场时整体淡出。主界面同为 #181818 深底，换页无缝衔接 */
-  #stage {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
+  #stage { position: fixed; inset: 0; }
   #stage.leaving { animation: stageOut 0.42s ease forwards; }
-  @keyframes stageOut {
-    to { opacity: 0; transform: scale(1.015); }
-  }
-  .card {
-    text-align: center;
-    padding: 44px 56px;
-    background: var(--zc-panel);
-    border: 1px solid var(--zc-border);
-    border-radius: 16px;
-    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
-    /* 入场：淡入 + 上浮 */
-    opacity: 0;
-    transform: translateY(16px) scale(0.98);
-    animation: cardIn 0.55s cubic-bezier(0.22, 0.9, 0.32, 1) 0.05s forwards;
-  }
-  @keyframes cardIn {
-    to { opacity: 1; transform: none; }
-  }
-  .mascot {
-    width: 220px; height: 220px;
-    object-fit: cover;
-    border-radius: 18px;
-    margin-bottom: 22px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--zc-border);
-    animation: floaty 3.2s ease-in-out infinite;
-  }
-  @keyframes floaty {
-    0%, 100% { transform: translateY(0); }
-    50%      { transform: translateY(-6px); }
-  }
-  h1 {
-    font-size: 22px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    margin-bottom: 10px;
-  }
-  h1 .accent { color: var(--zc-blue); }
-  #status {
-    font-size: 13px;
-    color: var(--zc-dim);
-    min-height: 20px;
-    margin-bottom: 6px;
-    transition: opacity 0.18s ease;
-  }
-  #elapsed {
-    font-size: 12px;
-    color: var(--zc-blue);
-    font-variant-numeric: tabular-nums;
-    min-height: 18px;
-    margin-bottom: 16px;
-  }
-  .bar {
-    width: 260px; height: 3px;
-    background: var(--zc-border);
-    border-radius: 2px;
+  @keyframes stageOut { to { opacity: 0; } }
+
+  /* ---- 占位块基类：低透明度白 + 微光扫过（1.4s 循环，--d 为错落延迟） ---- */
+  .sk {
+    position: relative;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
     overflow: hidden;
-    margin: 0 auto;
   }
-  .bar::before {
+  .sk::after {
     content: "";
-    display: block;
-    height: 100%;
-    width: 40%;
-    background: linear-gradient(90deg, transparent, var(--zc-blue), transparent);
-    animation: sweep 1.4s ease-in-out infinite;
+    position: absolute; inset: 0;
+    background: linear-gradient(105deg, transparent 36%, rgba(255, 255, 255, 0.13) 50%, transparent 64%);
+    transform: translateX(-100%);
+    animation: shimmer 1.4s ease-in-out infinite;
+    animation-delay: var(--d, 0s);
   }
-  @keyframes sweep {
-    0%   { transform: translateX(-100%); }
-    100% { transform: translateX(350%); }
+  @keyframes shimmer { to { transform: translateX(100%); } }
+
+  /* ---- 侧栏骨架：距窗 12px / 内容宽 280px / 圆角 20px / #1b1b1c 底。
+     几何与 dsh-anime-theme 悬浮侧栏一致（client-src.js syncSidebarGlass：
+     margin 12px + borderRadius 20px），切真界面时外形逐像素连续 ---- */
+  .sk-side {
+    position: absolute;
+    left: 12px; top: 12px; bottom: 12px; width: 280px;
+    background: #1b1b1c;
+    border-radius: 20px;
+    padding: 14px;
+    display: flex; flex-direction: column;
   }
-  .hint { margin-top: 18px; font-size: 11px; color: #5a5a5a; }
-  /* 移除 app-region 拖拽条——本页是 contentView 的首屏文档，其整页级
-     drag 区域会并进窗口判定区域且不随后续导航可靠回收，毒化顶栏按钮的点击
-     （徽章 0~1300px 区间被吞，即 calc(100%-140px) 的边界）；启动页仅展示 1.5s，
-     不值得为它保留拖拽 */
-  .ver { color: var(--zc-blue); }
+  .sk-logo { display: flex; align-items: center; gap: 10px; height: 26px; margin: 2px 4px 16px; }
+  .sk-logo .sq { width: 26px; height: 26px; border-radius: 8px; flex: none; }
+  .sk-logo .ln { width: 104px; height: 12px; }
+  .sk-new { height: 36px; border-radius: 10px; background: rgba(255, 255, 255, 0.07); margin-bottom: 18px; flex: none; }
+  .sk-rows { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
+  .sk-row { display: flex; align-items: center; gap: 10px; height: 26px; padding: 0 4px; flex: none; }
+  .sk-row .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+  .sk-row .ln { height: 9px; border-radius: 5px; }
+
+  /* ---- 主内容骨架：侧栏右缘（12+280）再留 12px 起 ---- */
+  .sk-main {
+    position: absolute;
+    left: 304px; top: 12px; right: 12px; bottom: 12px;
+    display: flex; flex-direction: column;
+    padding: 6px 20px 14px;
+    min-width: 0;
+  }
+  .sk-head { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 6px; flex: none; }
+  .sk-head .ava { width: 26px; height: 26px; border-radius: 50%; flex: none; }
+  .sk-head .ln { width: 148px; height: 12px; }
+  .sk-head .tail { margin-left: auto; width: 58px; height: 12px; }
+  .sk-msgs { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 18px; padding: 0 6px; }
+  .msg { height: 58px; border-radius: 12px; flex: none; }
+  .msg.l { width: 46%; }
+  .msg.r { width: 34%; margin-left: auto; }
+  .msg.l2 { width: 56%; height: 72px; }
+  .sk-foot { flex: none; padding: 0 2px; }
+  .sk-inputrow { display: flex; align-items: center; gap: 10px; }
+  .sk-input { flex: 1; height: 44px; border-radius: 12px; }
+  .sk-send { width: 36px; height: 36px; border-radius: 50%; flex: none; }
+
+  /* 不定进度条：状态行上方一根扫光滑条——等待期明确的「正在加载」动效
+     （真实进度不可知，用 indeterminate；语义同旧启动页的进度扫光） */
+  #progress {
+    position: relative;
+    height: 3px;
+    margin: 14px 12% 0;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+  }
+  #progress::after {
+    content: "";
+    position: absolute; top: 0; bottom: 0; left: 0;
+    width: 38%;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.38);
+    animation: slide 1.15s cubic-bezier(.45, .05, .55, .95) infinite;
+  }
+  @keyframes slide {
+    from { transform: translateX(-110%); }
+    to { transform: translateX(370%); }
+  }
+
+  /* 状态行：半透明细字，放主内容底部进度条下方，不抢戏 */
+  #statusline {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 12px;
+    line-height: 17px;
+    color: rgba(255, 255, 255, 0.42);
+    letter-spacing: 0.3px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #statusline .sep { margin: 0 7px; color: rgba(255, 255, 255, 0.16); }
+  #status { display: inline; transition: opacity 0.16s ease; }
+  #elapsed { color: rgba(255, 255, 255, 0.22); }
+
+  /* gif 挂件：右下角，同主题挂件位（client-src.js mascot：right 14 / bottom 12 /
+     圆角 14 / drop-shadow），宽约 110px，像贴在界面上的挂件 */
+  #mascot {
+    position: fixed; right: 14px; bottom: 12px;
+    width: 110px; height: auto;
+    border-radius: 14px;
+    object-fit: cover;
+    opacity: 0.92;
+    filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.5));
+    pointer-events: none; user-select: none;
+    z-index: 10;
+  }
 </style>
 </head>
 <body>
   <div id="stage">
-    <div class="card">
-      <img id="mascot" class="mascot" alt="" draggable="false" />
-      <h1>DeepSeek <span class="accent">Harness</span> <span class="ver" id="ver"></span></h1>
-      <div id="status">正在启动 …</div>
-      <div id="elapsed">0.0 s</div>
-      <div class="bar"></div>
-      <div class="hint">欢迎使用 DeepSeek Harness</div>
-    </div>
+    <!-- 侧栏骨架：logo 行 / 新会话按钮 / 8 条会话行（图标圆点 + 长短不一文字条） -->
+    <aside class="sk-side">
+      <div class="sk-logo">
+        <div class="sk sq" style="--d:0s"></div>
+        <div class="sk ln" style="--d:.05s"></div>
+      </div>
+      <div class="sk sk-new" style="--d:.08s"></div>
+      <div class="sk-rows">
+        <div class="sk-row"><div class="sk dot" style="--d:.10s"></div><div class="sk ln" style="width:78%;--d:.10s"></div></div>
+        <div class="sk-row"><div class="sk dot" style="--d:.14s"></div><div class="sk ln" style="width:92%;--d:.14s"></div></div>
+        <div class="sk-row"><div class="sk dot" style="--d:.18s"></div><div class="sk ln" style="width:47%;--d:.18s"></div></div>
+        <div class="sk-row"><div class="sk dot" style="--d:.22s"></div><div class="sk ln" style="width:64%;--d:.22s"></div></div>
+        <div class="sk-row"><div class="sk dot" style="--d:.26s"></div><div class="sk ln" style="width:85%;--d:.26s"></div></div>
+        <div class="sk-row"><div class="sk dot" style="--d:.30s"></div><div class="sk ln" style="width:38%;--d:.30s"></div></div>
+        <div class="sk-row"><div class="sk dot" style="--d:.34s"></div><div class="sk ln" style="width:71%;--d:.34s"></div></div>
+        <div class="sk-row"><div class="sk dot" style="--d:.38s"></div><div class="sk ln" style="width:55%;--d:.38s"></div></div>
+      </div>
+    </aside>
+    <!-- 主内容骨架：会话头 / 左右交错消息块 / 底部输入框 + 状态行 -->
+    <main class="sk-main">
+      <div class="sk-head">
+        <div class="sk ava" style="--d:.05s"></div>
+        <div class="sk ln" style="--d:.10s"></div>
+        <div class="sk tail ln" style="--d:.15s"></div>
+      </div>
+      <div class="sk-msgs">
+        <div class="sk msg l" style="--d:.10s"></div>
+        <div class="sk msg r" style="--d:.24s"></div>
+        <div class="sk msg l2" style="--d:.38s"></div>
+      </div>
+      <div class="sk-foot">
+        <div class="sk-inputrow">
+          <div class="sk sk-input" style="--d:.18s"></div>
+          <div class="sk sk-send" style="--d:.28s"></div>
+        </div>
+        <div id="progress"></div>
+        <div id="statusline">
+          <span id="status">正在启动服务 …</span><span class="sep">·</span><span id="elapsed">0.0 s</span><span class="sep" id="versep" hidden>·</span><span id="ver" hidden></span>
+        </div>
+      </div>
+    </main>
+    <img id="mascot" alt="" draggable="false" hidden />
   </div>
 <script>
   const params = new URLSearchParams(location.search);
   const gif = params.get('gif');
-  if (gif) document.getElementById('mascot').src = 'file://' + gif.replace(/\\/g, '/');
+  if (gif) {
+    const mascot = document.getElementById('mascot');
+    mascot.src = 'file://' + gif.replace(/\\/g, '/');
+    mascot.hidden = false;
+  }
   const ver = params.get('ver');
-  if (ver) document.getElementById('ver').textContent = 'v' + ver;
+  if (ver) {
+    document.getElementById('ver').textContent = 'v' + ver;
+    document.getElementById('ver').hidden = false;
+    document.getElementById('versep').hidden = false;
+  }
 
   const statusEl = document.getElementById('status');
   window.__setStatus = function (text) {
@@ -138,16 +197,22 @@
       statusEl.style.opacity = '1';
     }, 160);
   };
-  window.__setStatus('正在启动 …');
 
-  // 启动耗时计时（从启动页加载完成起算，服务启动通常 10~20s，让等待可感知）
+  // 启动耗时计时（0.1s 步进），显示在主内容底部状态行
   const elapsedEl = document.getElementById('elapsed');
   let t0 = Date.now();
-  let timer = setInterval(function () {
-    elapsedEl.textContent = ((Date.now() - t0) / 1000).toFixed(1) + ' s';
-  }, 100);
+  let timer = null;
+  const startTimer = function () {
+    clearInterval(timer);
+    t0 = Date.now();
+    timer = setInterval(function () {
+      elapsedEl.textContent = ((Date.now() - t0) / 1000).toFixed(1) + ' s';
+    }, 100);
+  };
+  startTimer();
 
-  // 主进程在服务就绪、即将加载界面时调用：整页淡出后再换页，避免生硬跳变
+  // 主进程在服务就绪、即将加载界面时调用：整页淡出（约 430ms）后再换页，
+  // 时序与 main.js 的 withTimeout(splashOut(), 1200) 串行等待配套，不得缩短或异步化
   window.__splashOut = function () {
     return new Promise(function (resolve) {
       clearInterval(timer);
@@ -156,13 +221,10 @@
     });
   };
 
-  // 淡出后需要回退重试（预热服务失联转自启动）时，恢复启动页可见并继续计时
+  // 淡出后需要回退重试（预热服务失联转自启动）时，恢复骨架可见并重置计时
   window.__splashIn = function () {
     document.getElementById('stage').classList.remove('leaving');
-    t0 = Date.now();
-    timer = setInterval(function () {
-      elapsedEl.textContent = ((Date.now() - t0) / 1000).toFixed(1) + ' s';
-    }, 100);
+    startTimer();
   };
 </script>
 </body>

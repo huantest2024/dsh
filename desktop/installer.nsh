@@ -1,4 +1,4 @@
-; ===== DeepSeek Harness 桌面版 安装/卸载钩子（NSIS）=====
+; ===== DSH Desktop 安装/卸载钩子（NSIS）=====
 ; 升级前强制退出旧版；卸载默认保留应用数据，
 ; 用户显式选择「删除」才清理，会话等 dsh 数据（~/.dsh）任何情况都不动。
 !include "LogicLib.nsh"
@@ -6,8 +6,10 @@
 !include "nsDialogs.nsh"
 
 ; 升级前先退出旧版（含托盘常驻），避免文件占用导致升级失败
+; 同时杀旧 productName 时期的 exe 名，兼容从 1.0.3（DeepSeek Harness.exe）升级
 !macro customInit
   DetailPrint "正在关闭正在运行的旧版本..."
+  nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /f /im "DSH Desktop.exe" /fi "USERNAME eq %USERNAME%"`
   nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /f /im "DeepSeek Harness.exe" /fi "USERNAME eq %USERNAME%"`
   Sleep 800
 !macroend
@@ -41,7 +43,7 @@ Function un.DshDataPage
   ${EndIf}
   nsDialogs::Create 1018
   Pop $DshDlg
-  ${NSD_CreateLabel} 0 -2u 100% 24u "即将卸载 DeepSeek Harness。请选择如何处理应用数据（设置、更新运行时、缓存、日志）："
+  ${NSD_CreateLabel} 0 -2u 100% 24u "即将卸载 DSH Desktop。请选择如何处理应用数据（设置、更新运行时、缓存、日志）："
   Pop $DshTmp
   ${NSD_CreateRadioButton} 8u 30u 92% 10u "保留应用数据（推荐）——重新安装后可继续使用"
   Pop $DshRadioKeep
@@ -64,9 +66,11 @@ FunctionEnd
 
 ; 执行卸载：杀残留进程；仅当用户显式选择删除时清理应用数据目录
 !macro customUnInstall
+  nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /f /im "DSH Desktop.exe" /fi "USERNAME eq %USERNAME%"`
   nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /f /im "DeepSeek Harness.exe" /fi "USERNAME eq %USERNAME%"`
   Sleep 500
   ${If} $DshDataMode == "delete"
+    RMDir /r "$APPDATA\DSH Desktop"
     RMDir /r "$APPDATA\DeepSeek Harness"
   ${EndIf}
 !macroend
