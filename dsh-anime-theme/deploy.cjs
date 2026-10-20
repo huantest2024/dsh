@@ -23,7 +23,7 @@ for (const t of targets) {
       fs.copyFileSync(path.join(srcDir, srcRel), dest)
     }
     const deployed = fs.readFileSync(path.join(t.dir, 'lib/client.js'), 'utf8')
-    const ok = deployed.includes('syncSidebarGlass') && deployed.includes('dsh-anime-wallpaper-video')
+    const ok = deployed.includes('syncSidebarGlass') && deployed.includes('dsh-anime-wallpaper-video') && deployed.includes('dsh-anime-fab')
     if (!ok) bad += 1
     console.log((ok ? 'OK  ' : 'BAD ') + t.dir)
   } catch (e) {

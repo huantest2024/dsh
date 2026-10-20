@@ -1,9 +1,25 @@
 {
   "name": "dsh-anime-theme",
-  "description": "二次元主题插件：深色模式下的全屏动漫壁纸 + 半透明玻璃面板 + ZCode 中性深灰调色 + 右下角随机动图挂件（间谍过家家 / Lycoris Recoil）",
-  "version": "1.0.0",
+  "description": "二次元主题插件：全屏动漫壁纸 + 半透明玻璃面板 + 五套全局配色主题 + 动态壁纸 + 粒子效果 + 右下角随机动图挂件（间谍过家家 / Lycoris Recoil）",
+  "version": "1.1.0",
   "license": "MIT",
   "type": "module",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh-plugin",
+    "theme",
+    "anime",
+    "wallpaper"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/huantest2024/dsh-anime-theme.git"
+  },
+  "homepage": "https://github.com/huantest2024/dsh-anime-theme#readme",
+  "bugs": {
+    "url": "https://github.com/huantest2024/dsh-anime-theme/issues"
+  },
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",

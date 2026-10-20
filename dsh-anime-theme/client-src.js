@@ -183,6 +183,15 @@ window.__ModuleLoader__.load({
         ' backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }',
         'body:not([data-ds-dark-theme]) [class*="sessionLogButton"] { border-color: rgba(0,0,0,0.10) !important; color: #3c3c50 !important; }',
 
+        /* 浮动 🎨 按钮（无壳桥环境的主题入口，官方桌面版/纯浏览器）：与药丸同款配色与过渡。
+           底色/文字走 --dsh-pill-* 与主题 pill 变量，hover 深浅两套分开写 */
+        '#dsh-anime-fab { transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease; }',
+        'body[data-ds-dark-theme] #dsh-anime-fab:hover { background: var(--dsh-pill-hover) !important; }',
+        'body:not([data-ds-dark-theme]) #dsh-anime-fab { color: #3c3c50 !important; border-color: rgba(0,0,0,0.10) !important; }',
+        'body:not([data-ds-dark-theme]) #dsh-anime-fab:hover { background: #ffffff !important;' +
+        ' border-color: rgba(var(--dsh-anime-accent-light-rgb),0.55) !important;' +
+        ' box-shadow: 0 2px 12px rgba(var(--dsh-anime-accent-light-rgb),0.28) !important; }',
+
         /* 主题面板：深浅两套配色，跟随 dsh 原生主题切换（Win11 设置式：卡片网格 + 行式分组） */
         '#dsh-anime-panel { background: rgba(249,249,249,0.98) !important; border: 1px solid rgba(0,0,0,0.08) !important; }',
         '#dsh-anime-panel .dsh-panel-title { color: #2c2c2e !important; }',
@@ -1305,6 +1314,31 @@ window.__ModuleLoader__.load({
       if (sidebarTrackWatchEl !== frame0) reobserve(frame0)
     }
 
+    /* ---------------- 浮动主题按钮（无壳桥环境：官方桌面版 / 纯浏览器）----------------
+       自封装壳的入口是顶栏 🎨（壳 preload 桥 window.dshDesktop.onShellCommand 转发到
+       window.__dshShellCommand）；检测到壳桥时不挂浮动按钮，避免双入口。
+       无壳桥时在页面右缘挂 32px 圆钮，点击走与壳桥同一套面板开合逻辑。
+       挂载一次、不随 render 重建；effect cleanup 时移除。 */
+    function mountFab(toggle) {
+      if (window.dshDesktop && window.dshDesktop.onShellCommand) return null
+      var fab = document.getElementById('dsh-anime-fab')
+      if (fab) return fab
+      fab = el('button',
+        'position:fixed;right:10px;top:42%;width:32px;height:32px;padding:0;border-radius:50%;' +
+        'border:1px solid rgba(255,255,255,0.14);background:var(--dsh-pill-bg,rgba(30,30,34,0.62));' +
+        'color:var(--dsh-anime-pill-text,#cfd6ff);font-size:15px;line-height:1;cursor:pointer;' +
+        'display:flex;align-items:center;justify-content:center;z-index:2147483001;' +
+        'backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);', '🎨')
+      fab.id = 'dsh-anime-fab'
+      fab.title = '主题面板'
+      fab.addEventListener('click', function (e) {
+        e.stopPropagation()
+        toggle()
+      })
+      document.body.appendChild(fab)
+      return fab
+    }
+
     /* ---------------- 渲染编排 ---------------- */
 
     function render(root, settings, onChange, state) {
@@ -1406,11 +1440,11 @@ window.__ModuleLoader__.load({
         if (cmd !== 'theme-button') return
         rerender({ __togglePanel: true })
       }
-      // 点击面板以外的空白处 → 关闭面板
+      // 点击面板以外的空白处 → 关闭面板（浮动按钮同属面板控件，排除防「先关又开」）
       var docListener = function (e) {
         if (!state.panelOpen) return
         var t = e.target
-        if (t && t.closest && t.closest('#dsh-anime-panel')) return
+        if (t && t.closest && (t.closest('#dsh-anime-panel') || t.closest('#dsh-anime-fab'))) return
         rerender({ __closePanel: true })
       }
       ctx.effect(function () {
@@ -1419,12 +1453,15 @@ window.__ModuleLoader__.load({
         var glassTimer = setInterval(function () { syncSidebarGlass(settings) }, 600)
         syncSidebarGlass(settings)
         render(document.body, settings, rerender, state)
+        // 无壳桥环境（官方桌面版/纯浏览器）挂浮动 🎨 入口；有壳桥时返回 null
+        var fab = mountFab(function () { rerender({ __togglePanel: true }) })
         return function () {
           document.removeEventListener('click', docListener, true)
           clearInterval(glassTimer)
           if (stopParticles) { stopParticles(); stopParticles = null }
           if (state.wallUrl) { URL.revokeObjectURL(state.wallUrl); state.wallUrl = null }
           window.__dshShellCommand = null
+          if (fab) fab.remove()
           for (var id of ['dsh-anime-theme-style', 'dsh-anime-mascot', 'dsh-anime-panel', 'dsh-anime-wallpaper-video', 'dsh-anime-wallpaper-mask']) {
             var old = document.getElementById(id)
             if (old) old.remove()
