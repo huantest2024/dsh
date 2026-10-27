@@ -17,71 +17,90 @@
   #stage.leaving { animation: stageOut 0.42s ease forwards; }
   @keyframes stageOut { to { opacity: 0; } }
 
-  /* ---- 占位块基类：低透明度白 + 微光扫过（1.4s 循环，--d 为错落延迟） ---- */
-  .sk {
-    position: relative;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .sk::after {
-    content: "";
+  /* ---- 小肥鱼加载场景：居中构图，替代旧骨架屏 ----
+     素材 = 壳图标（assets/icon_app.png，浅蓝圆环徽章内的 Q 版小肥鱼，
+     与 GitHub 仓库图标同源），配「浮在水面等服务」的动效：
+     徽章上下浮动 + 身后光晕呼吸 + 周围气泡上浮 + 下方水面涟漪。
+     全部动画只用 transform/opacity（合成器路径），启动页不走 JS 循环。 */
+  #scene {
     position: absolute; inset: 0;
-    background: linear-gradient(105deg, transparent 36%, rgba(255, 255, 255, 0.13) 50%, transparent 64%);
-    transform: translateX(-100%);
-    animation: shimmer 1.4s ease-in-out infinite;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding-bottom: 7vh; /* 视觉重心略上移，给下方状态行留呼吸 */
+  }
+  #pool { position: relative; width: 250px; height: 230px; flex: none; }
+
+  /* 光晕：徽章身后一团淡蓝呼吸光，跟随浮动节奏 */
+  #glow {
+    position: absolute; left: 50%; top: 46%;
+    width: 240px; height: 240px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle,
+      rgba(150, 182, 228, 0.16) 0%,
+      rgba(150, 182, 228, 0.05) 45%,
+      transparent 70%);
+    animation: glow 3.2s ease-in-out infinite;
+  }
+  @keyframes glow {
+    0%, 100% { transform: translate(-50%, -50%) scale(0.92); opacity: 0.55; }
+    50%      { transform: translate(-50%, -50%) scale(1.1);  opacity: 1; }
+  }
+
+  /* 小肥鱼本体：轻微浮沉 + 左右微倾，像漂在水面上 */
+  #fish {
+    position: absolute; left: 50%; top: 44%;
+    width: 148px; height: 148px;
+    margin: -74px 0 0 -74px;
+    border-radius: 50%;
+    animation: bob 3.2s ease-in-out infinite;
+    filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.45));
+    user-select: none; pointer-events: none;
+  }
+  @keyframes bob {
+    0%, 100% { transform: translateY(7px) rotate(-2deg); }
+    50%      { transform: translateY(-9px) rotate(2deg); }
+  }
+
+  /* 水面涟漪：鱼下方一道椭圆微光，与浮动同节奏缩放 */
+  #ripple {
+    position: absolute; left: 50%; bottom: 2px;
+    width: 150px; height: 24px;
+    margin-left: -75px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center,
+      rgba(200, 220, 248, 0.12), transparent 65%);
+    animation: ripple 3.2s ease-in-out infinite;
+  }
+  @keyframes ripple {
+    0%, 100% { transform: scaleX(0.85); opacity: 0.5; }
+    50%      { transform: scaleX(1.12); opacity: 0.15; }
+  }
+
+  /* 气泡：从鱼身边缘持续上浮，错峰循环 */
+  .bub {
+    position: absolute; bottom: 26px;
+    width: var(--s, 8px); height: var(--s, 8px);
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%,
+      rgba(215, 232, 252, 0.55), rgba(190, 215, 245, 0.16));
+    opacity: 0;
+    animation: rise var(--t, 3.6s) linear infinite;
     animation-delay: var(--d, 0s);
   }
-  @keyframes shimmer { to { transform: translateX(100%); } }
-
-  /* ---- 侧栏骨架：距窗 12px / 内容宽 280px / 圆角 20px / #1b1b1c 底。
-     几何与 dsh-anime-theme 悬浮侧栏一致（client-src.js syncSidebarGlass：
-     margin 12px + borderRadius 20px），切真界面时外形逐像素连续 ---- */
-  .sk-side {
-    position: absolute;
-    left: 12px; top: 12px; bottom: 12px; width: 280px;
-    background: #1b1b1c;
-    border-radius: 20px;
-    padding: 14px;
-    display: flex; flex-direction: column;
+  @keyframes rise {
+    0%   { transform: translateY(0) scale(0.7); opacity: 0; }
+    14%  { opacity: 0.75; }
+    78%  { opacity: 0.35; }
+    100% { transform: translateY(-128px) scale(1.3); opacity: 0; }
   }
-  .sk-logo { display: flex; align-items: center; gap: 10px; height: 26px; margin: 2px 4px 16px; }
-  .sk-logo .sq { width: 26px; height: 26px; border-radius: 8px; flex: none; }
-  .sk-logo .ln { width: 104px; height: 12px; }
-  .sk-new { height: 36px; border-radius: 10px; background: rgba(255, 255, 255, 0.07); margin-bottom: 18px; flex: none; }
-  .sk-rows { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
-  .sk-row { display: flex; align-items: center; gap: 10px; height: 26px; padding: 0 4px; flex: none; }
-  .sk-row .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
-  .sk-row .ln { height: 9px; border-radius: 5px; }
 
-  /* ---- 主内容骨架：侧栏右缘（12+280）再留 12px 起 ---- */
-  .sk-main {
-    position: absolute;
-    left: 304px; top: 12px; right: 12px; bottom: 12px;
-    display: flex; flex-direction: column;
-    padding: 6px 20px 14px;
-    min-width: 0;
-  }
-  .sk-head { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 6px; flex: none; }
-  .sk-head .ava { width: 26px; height: 26px; border-radius: 50%; flex: none; }
-  .sk-head .ln { width: 148px; height: 12px; }
-  .sk-head .tail { margin-left: auto; width: 58px; height: 12px; }
-  .sk-msgs { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 18px; padding: 0 6px; }
-  .msg { height: 58px; border-radius: 12px; flex: none; }
-  .msg.l { width: 46%; }
-  .msg.r { width: 34%; margin-left: auto; }
-  .msg.l2 { width: 56%; height: 72px; }
-  .sk-foot { flex: none; padding: 0 2px; }
-  .sk-inputrow { display: flex; align-items: center; gap: 10px; }
-  .sk-input { flex: 1; height: 44px; border-radius: 12px; }
-  .sk-send { width: 36px; height: 36px; border-radius: 50%; flex: none; }
-
-  /* 不定进度条：状态行上方一根扫光滑条——等待期明确的「正在加载」动效
-     （真实进度不可知，用 indeterminate；语义同旧启动页的进度扫光） */
+  /* 状态区：进度条 + 状态行，居中放在场景下方 */
+  #hud { margin-top: 30px; width: 100%; flex: none; text-align: center; }
   #progress {
     position: relative;
-    height: 3px;
-    margin: 14px 12% 0;
+    width: 210px; height: 3px;
+    margin: 0 auto;
     border-radius: 2px;
     background: rgba(255, 255, 255, 0.07);
     overflow: hidden;
@@ -96,13 +115,10 @@
   }
   @keyframes slide {
     from { transform: translateX(-110%); }
-    to { transform: translateX(370%); }
+    to   { transform: translateX(370%); }
   }
-
-  /* 状态行：半透明细字，放主内容底部进度条下方，不抢戏 */
   #statusline {
-    margin-top: 10px;
-    text-align: center;
+    margin-top: 12px;
     font-size: 12px;
     line-height: 17px;
     color: rgba(255, 255, 255, 0.42);
@@ -126,51 +142,34 @@
     pointer-events: none; user-select: none;
     z-index: 10;
   }
+
+  /* 减少动态偏好：全部动效停掉，只留静态徽章与状态行 */
+  @media (prefers-reduced-motion: reduce) {
+    #fish, #glow, #ripple, .bub, #progress::after { animation: none; }
+    .bub { opacity: 0; }
+  }
 </style>
 </head>
 <body>
   <div id="stage">
-    <!-- 侧栏骨架：logo 行 / 新会话按钮 / 8 条会话行（图标圆点 + 长短不一文字条） -->
-    <aside class="sk-side">
-      <div class="sk-logo">
-        <div class="sk sq" style="--d:0s"></div>
-        <div class="sk ln" style="--d:.05s"></div>
+    <div id="scene">
+      <div id="pool">
+        <div id="glow"></div>
+        <span class="bub" style="left:34%; --s:7px;  --t:3.8s; --d:0s"></span>
+        <span class="bub" style="left:58%; --s:9px;  --t:3.2s; --d:.9s"></span>
+        <span class="bub" style="left:44%; --s:6px;  --t:4.4s; --d:1.7s"></span>
+        <span class="bub" style="left:66%; --s:5px;  --t:3.5s; --d:2.3s"></span>
+        <span class="bub" style="left:50%; --s:7px;  --t:4.1s; --d:2.9s"></span>
+        <img id="fish" src="../assets/icon_app.png" alt="" draggable="false" />
+        <div id="ripple"></div>
       </div>
-      <div class="sk sk-new" style="--d:.08s"></div>
-      <div class="sk-rows">
-        <div class="sk-row"><div class="sk dot" style="--d:.10s"></div><div class="sk ln" style="width:78%;--d:.10s"></div></div>
-        <div class="sk-row"><div class="sk dot" style="--d:.14s"></div><div class="sk ln" style="width:92%;--d:.14s"></div></div>
-        <div class="sk-row"><div class="sk dot" style="--d:.18s"></div><div class="sk ln" style="width:47%;--d:.18s"></div></div>
-        <div class="sk-row"><div class="sk dot" style="--d:.22s"></div><div class="sk ln" style="width:64%;--d:.22s"></div></div>
-        <div class="sk-row"><div class="sk dot" style="--d:.26s"></div><div class="sk ln" style="width:85%;--d:.26s"></div></div>
-        <div class="sk-row"><div class="sk dot" style="--d:.30s"></div><div class="sk ln" style="width:38%;--d:.30s"></div></div>
-        <div class="sk-row"><div class="sk dot" style="--d:.34s"></div><div class="sk ln" style="width:71%;--d:.34s"></div></div>
-        <div class="sk-row"><div class="sk dot" style="--d:.38s"></div><div class="sk ln" style="width:55%;--d:.38s"></div></div>
-      </div>
-    </aside>
-    <!-- 主内容骨架：会话头 / 左右交错消息块 / 底部输入框 + 状态行 -->
-    <main class="sk-main">
-      <div class="sk-head">
-        <div class="sk ava" style="--d:.05s"></div>
-        <div class="sk ln" style="--d:.10s"></div>
-        <div class="sk tail ln" style="--d:.15s"></div>
-      </div>
-      <div class="sk-msgs">
-        <div class="sk msg l" style="--d:.10s"></div>
-        <div class="sk msg r" style="--d:.24s"></div>
-        <div class="sk msg l2" style="--d:.38s"></div>
-      </div>
-      <div class="sk-foot">
-        <div class="sk-inputrow">
-          <div class="sk sk-input" style="--d:.18s"></div>
-          <div class="sk sk-send" style="--d:.28s"></div>
-        </div>
+      <div id="hud">
         <div id="progress"></div>
         <div id="statusline">
           <span id="status">正在启动服务 …</span><span class="sep">·</span><span id="elapsed">0.0 s</span><span class="sep" id="versep" hidden>·</span><span id="ver" hidden></span>
         </div>
       </div>
-    </main>
+    </div>
     <img id="mascot" alt="" draggable="false" hidden />
   </div>
 <script>
@@ -198,7 +197,7 @@
     }, 160);
   };
 
-  // 启动耗时计时（0.1s 步进），显示在主内容底部状态行
+  // 启动耗时计时（0.1s 步进），显示在状态行
   const elapsedEl = document.getElementById('elapsed');
   let t0 = Date.now();
   let timer = null;
@@ -221,7 +220,7 @@
     });
   };
 
-  // 淡出后需要回退重试（预热服务失联转自启动）时，恢复骨架可见并重置计时
+  // 淡出后需要回退重试（预热服务失联转自启动）时，恢复场景可见并重置计时
   window.__splashIn = function () {
     document.getElementById('stage').classList.remove('leaving');
     startTimer();
