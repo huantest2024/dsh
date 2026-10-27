@@ -7,54 +7,110 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; }
   body {
-    background: #181818;
+    /* 深海渐变：中心微亮、边缘沉底，配合声呐/雷达的「水下」空间感 */
+    background: radial-gradient(125% 95% at 50% 36%, #17222e 0%, #181818 62%);
     font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
     /* 本页严禁任何 -webkit-app-region：整页级 drag 区域会并进窗口判定区域且
        不随后续导航回收，毒化顶栏按钮的点击（bar.html 顶栏同款教训，弃用该机制） */
   }
-  /* 整页过渡容器：退场时整体淡出。主界面同为 #181818 深底，换页无缝衔接 */
+  /* 整页过渡容器：退场时整体淡出。主界面同为深底，换页无缝衔接 */
   #stage { position: fixed; inset: 0; }
   #stage.leaving { animation: stageOut 0.22s ease forwards; }
   @keyframes stageOut { to { opacity: 0; } }
 
-  /* ============ 小肥鱼开场（编排参考社区 dsh-whale-startup 的设计语言，
-     素材与实现均为本项目自有）============
-     候场循环 ≈ 5.4s：呼吸缩放 → 左右张望 → 性急小跳 → 气泡轻晃；
-     谢幕（__splashOut 触发）：蓄力后仰 → 拍走气泡 → 居中放大 →
-     放射线 + 粗描边「开工！」→ 淡出。共用一套 #rig/#fish 变换分层：
-     rig 负责大动作（跳/放大），fish 负责细节（呼吸/倾斜/抖动）。 */
+  /* ============ 小肥鱼深海开场 ============
+     设计语言参考社区 dsh-whale-startup（候场/拍走/欢呼）与 dsh-deepsea-echo
+     （自检清单 / 声呐环 / 雷达扫描线 / 扫描线遮罩+RGB 分离实体化 / 深海配色），
+     素材与实现均为本项目自有，不取用第三方美术与音效。
+     候场：鲸鱼徽章 + 雷达扫描 + 声呐 ping + 自检清单逐项打钩 + 漫画气泡对白；
+     每次阶段切换（__setStatus）触发一次「实体化」：扫描线掠过 + RGB 分离闪烁；
+     谢幕（__splashOut）：蓄力后仰 → 拍走气泡 → 居中放大 → 放射线 + 「开工！」→ 淡出。 */
 
   #scene {
     position: absolute; inset: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    padding-bottom: 6vh;
+    padding-bottom: 5vh;
   }
 
-  /* 字标：对应参考实现里保留的原生 HARNESS 字样 */
+  /* 字标：谢幕时描边点亮 */
   #wordmark {
     font-size: 13px;
     font-weight: 600;
     letter-spacing: 4.5px;
     text-transform: uppercase;
     color: rgba(255, 255, 255, 0.46);
-    margin-bottom: 26px;
+    margin-bottom: 24px;
     user-select: none;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+  }
+  #stage.out #wordmark {
+    color: rgba(190, 232, 255, 0.95);
+    text-shadow: 0 0 18px rgba(139, 232, 255, 0.55);
   }
 
-  /* 候场区：气泡 + 鱼 + 旋转环 + 涟漪 */
+  /* 候场区 */
   #rig {
     position: relative;
     width: 260px; height: 250px;
     flex: none;
   }
 
-  /* ---- 漫画气泡：候场对白（= 状态文案），谢幕时被拍走 ---- */
+  /* ---- 雷达扫描线：锥形渐变楔形绕鲸鱼旋转（声呐/雷达语言）---- */
+  #radar {
+    position: absolute;
+    left: 50%; top: 47%;
+    width: 210px; height: 210px;
+    margin: -105px 0 0 -105px;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg,
+      rgba(139, 232, 255, 0.16) 0deg,
+      rgba(139, 232, 255, 0.04) 26deg,
+      transparent 62deg,
+      transparent 360deg);
+    -webkit-mask-image: radial-gradient(circle, #000 0%, #000 62%, transparent 72%);
+            mask-image: radial-gradient(circle, #000 0%, #000 62%, transparent 72%);
+    animation: radarSpin 2.6s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes radarSpin { to { transform: rotate(360deg); } }
+
+  /* ---- 声呐 ping：两圈错峰外扩 ---- */
+  .sonar {
+    position: absolute;
+    left: 50%; top: 47%;
+    width: 120px; height: 120px;
+    margin: -60px 0 0 -60px;
+    border: 1px solid rgba(139, 232, 255, 0.5);
+    border-radius: 50%;
+    opacity: 0;
+    animation: sonarPing 2.6s ease-out infinite;
+    pointer-events: none;
+  }
+  .sonar.s2 { animation-delay: 1.3s; }
+  @keyframes sonarPing {
+    0% { transform: scale(0.72); opacity: 0; }
+    18% { opacity: 0.55; }
+    100% { transform: scale(1.85); opacity: 0; }
+  }
+
+  /* ---- 旋转圆环（保留的加载元素）---- */
+  #ring {
+    position: absolute;
+    left: 50%; top: 47%;
+    width: 196px; height: 196px;
+    margin: -98px 0 0 -98px;
+    animation: ringSpin 11s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes ringSpin { to { transform: rotate(360deg); } }
+
+  /* ---- 漫画气泡：候场对白（= 当前阶段文案）---- */
   #bubble {
     position: absolute;
     left: 50%; top: -6px;
     transform: translateX(-50%);
-    max-width: 230px;
+    max-width: 236px;
     padding: 9px 15px 10px;
     background: #f2f4f8;
     color: #1b1b1f;
@@ -69,7 +125,6 @@
     animation: bubbleFloat 3.4s ease-in-out infinite;
     z-index: 3;
   }
-  /* 气泡尾巴：旋转方块做小尖角 */
   #bubble::after {
     content: "";
     position: absolute;
@@ -84,7 +139,6 @@
     0%, 100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
     50%      { transform: translateX(-50%) translateY(-5px) rotate(-1deg); }
   }
-  /* 状态切换：气泡回弹一下 */
   #bubble.pop { animation: bubblePop 0.42s cubic-bezier(.34, 1.56, .64, 1) both; }
   @keyframes bubblePop {
     0% { transform: translateX(-50%) scale(0.72); }
@@ -92,17 +146,6 @@
     100% { transform: translateX(-50%) scale(1); }
   }
   #status { display: inline-block; transition: opacity 0.16s ease; }
-
-  /* ---- 旋转圆环：对应参考实现保留的原生旋转环 ---- */
-  #ring {
-    position: absolute;
-    left: 50%; top: 47%;
-    width: 196px; height: 196px;
-    margin: -98px 0 0 -98px;
-    animation: ringSpin 11s linear infinite;
-    pointer-events: none;
-  }
-  @keyframes ringSpin { to { transform: rotate(360deg); } }
 
   /* ---- 小肥鱼本体：rig 管大动作，fish 管呼吸/倾斜 ---- */
   #fish-rig {
@@ -112,7 +155,6 @@
     margin: -69px 0 0 -69px;
     animation: rigIdle 5.4s ease-in-out infinite;
   }
-  /* 呼吸 + 张望 + 性急小跳：一条长关键帧里编排完，其余时间是平的 */
   @keyframes rigIdle {
     0%   { transform: translateY(0) rotate(0deg) scale(1); }
     16%  { transform: translateY(-5px) rotate(-1.5deg) scale(1.012); }
@@ -120,7 +162,7 @@
     44%  { transform: translateY(-5px) rotate(0deg) scale(1.012); }
     56%  { transform: translateY(0) rotate(0deg) scale(1); }
     66%  { transform: translateY(0) rotate(-3deg) scale(1); }
-    70%  { transform: translateY(-9px) rotate(3deg) scale(1.03); }   /* 性急小跳 */
+    70%  { transform: translateY(-9px) rotate(3deg) scale(1.03); }
     74%  { transform: translateY(0) rotate(3deg) scale(1.03); }
     80%  { transform: translateY(-9px) rotate(0deg) scale(1.03); }
     84%  { transform: translateY(0) rotate(0deg) scale(1.03); }
@@ -138,6 +180,35 @@
     50%      { transform: scale(0.965, 1.035); }
   }
 
+  /* ---- 实体化：阶段切换时扫描线掠过 + RGB 分离闪烁 ---- */
+  #scanline {
+    position: absolute;
+    left: 8%; right: 8%;
+    top: 0;
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, rgba(190, 240, 255, 0.95) 50%, transparent);
+    box-shadow: 0 0 14px 3px rgba(139, 232, 255, 0.5);
+    opacity: 0;
+    z-index: 4;
+    pointer-events: none;
+  }
+  #fish-rig.materialize #scanline { animation: scanSweep 0.5s ease-in-out 1; }
+  @keyframes scanSweep {
+    0% { top: 4%; opacity: 0; }
+    12% { opacity: 1; }
+    88% { opacity: 1; }
+    100% { top: 96%; opacity: 0; }
+  }
+  #fish-rig.materialize #fish {
+    animation: fishBreath 2.7s ease-in-out infinite, rgbSplit 0.42s linear 1;
+  }
+  @keyframes rgbSplit {
+    0%, 100% { filter: drop-shadow(0 14px 26px rgba(0, 0, 0, 0.45)); }
+    20% { filter: drop-shadow(3px 0 rgba(0, 255, 238, 0.85)) drop-shadow(-3px 0 rgba(255, 0, 200, 0.85)) drop-shadow(0 14px 26px rgba(0, 0, 0, 0.45)); }
+    55% { filter: drop-shadow(2px 0 rgba(0, 255, 238, 0.5)) drop-shadow(-2px 0 rgba(255, 0, 200, 0.5)) drop-shadow(0 14px 26px rgba(0, 0, 0, 0.45)); }
+  }
+
   /* 水面涟漪 */
   #ripple {
     position: absolute; left: 50%; bottom: 4px;
@@ -151,6 +222,97 @@
   @keyframes ripple {
     0%, 100% { transform: scaleX(0.85); opacity: 0.5; }
     50%      { transform: scaleX(1.12); opacity: 0.15; }
+  }
+
+  /* ---- 自检清单：四阶段逐项打钩（终端自检语言）---- */
+  #checklist {
+    margin-top: 26px;
+    width: 264px;
+    display: flex; flex-direction: column; gap: 7px;
+    font-size: 12.5px;
+    line-height: 1.3;
+    flex: none;
+  }
+  .ck-row {
+    display: flex; align-items: center; gap: 9px;
+    color: rgba(255, 255, 255, 0.28);
+    transition: color 0.25s ease;
+  }
+  .ck-box {
+    width: 14px; height: 14px;
+    flex: none;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: transparent;
+    transition: all 0.25s ease;
+  }
+  .ck-row.done { color: rgba(255, 255, 255, 0.5); }
+  .ck-row.done .ck-box {
+    background: rgba(139, 232, 255, 0.16);
+    border-color: rgba(139, 232, 255, 0.65);
+    color: #8be8ff;
+  }
+  .ck-row.active { color: rgba(230, 244, 255, 0.92); }
+  .ck-row.active .ck-box {
+    border-color: rgba(139, 232, 255, 0.85);
+    box-shadow: 0 0 10px rgba(139, 232, 255, 0.35);
+    color: #8be8ff;
+  }
+  .ck-row.just-done .ck-box { animation: ckPop 0.36s cubic-bezier(.34, 1.56, .64, 1) 1; }
+  @keyframes ckPop {
+    0% { transform: scale(0.5); }
+    60% { transform: scale(1.25); }
+    100% { transform: scale(1); }
+  }
+
+  /* ---- 底部：进度条 + 耗时/版本 ---- */
+  #hud { margin-top: 22px; width: 100%; flex: none; text-align: center; }
+  #progress {
+    position: relative;
+    width: 210px; height: 3px;
+    margin: 0 auto;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+  }
+  #progress::after {
+    content: "";
+    position: absolute; top: 0; bottom: 0; left: 0;
+    width: 38%;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.38);
+    animation: slide 1.15s cubic-bezier(.45, .05, .55, .95) infinite;
+  }
+  @keyframes slide {
+    from { transform: translateX(-110%); }
+    to   { transform: translateX(370%); }
+  }
+  #metaline {
+    margin-top: 12px;
+    font-size: 12px;
+    line-height: 17px;
+    color: rgba(255, 255, 255, 0.42);
+    letter-spacing: 0.3px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  #metaline .sep { margin: 0 7px; color: rgba(255, 255, 255, 0.16); }
+  #elapsed { color: rgba(255, 255, 255, 0.22); }
+
+  /* gif 挂件：右下角，同主题挂件位（client-src.js mascot：right 14 / bottom 12 /
+     圆角 14 / drop-shadow），宽约 110px，像贴在界面上的挂件 */
+  #mascot {
+    position: fixed; right: 14px; bottom: 12px;
+    width: 110px; height: auto;
+    border-radius: 14px;
+    object-fit: cover;
+    opacity: 0.92;
+    filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.5));
+    pointer-events: none; user-select: none;
+    z-index: 10;
   }
 
   /* ---- 谢幕粒子（拍走气泡时四散）---- */
@@ -197,110 +359,52 @@
     opacity: 0;
   }
 
-  /* ---- 底部：进度条 + 耗时/版本 ---- */
-  #hud { margin-top: 34px; width: 100%; flex: none; text-align: center; }
-  #progress {
-    position: relative;
-    width: 210px; height: 3px;
-    margin: 0 auto;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, 0.07);
-    overflow: hidden;
-  }
-  #progress::after {
-    content: "";
-    position: absolute; top: 0; bottom: 0; left: 0;
-    width: 38%;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, 0.38);
-    animation: slide 1.15s cubic-bezier(.45, .05, .55, .95) infinite;
-  }
-  @keyframes slide {
-    from { transform: translateX(-110%); }
-    to   { transform: translateX(370%); }
-  }
-  #metaline {
-    margin-top: 12px;
-    font-size: 12px;
-    line-height: 17px;
-    color: rgba(255, 255, 255, 0.42);
-    letter-spacing: 0.3px;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  #metaline .sep { margin: 0 7px; color: rgba(255, 255, 255, 0.16); }
-  #elapsed { color: rgba(255, 255, 255, 0.22); }
-
-  /* gif 挂件：右下角，同主题挂件位（client-src.js mascot：right 14 / bottom 12 /
-     圆角 14 / drop-shadow），宽约 110px，像贴在界面上的挂件 */
-  #mascot {
-    position: fixed; right: 14px; bottom: 12px;
-    width: 110px; height: auto;
-    border-radius: 14px;
-    object-fit: cover;
-    opacity: 0.92;
-    filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.5));
-    pointer-events: none; user-select: none;
-    z-index: 10;
-  }
-
   /* ============ 谢幕编排（.out 由 __splashOut 触发，链式 animation-delay）============ */
-  /* ① 蓄力后仰：0 ~ 150ms */
   #stage.out #fish-rig { animation: windup 0.15s ease-in forwards; }
   @keyframes windup {
     to { transform: translateY(-12px) rotate(-9deg) scale(1.04); }
   }
-  /* ② 拍走：150 ~ 330ms 鱼前倾下压 + 气泡爆开 + 粒子四散 */
   #stage.out #fish { animation: slapFish 0.2s cubic-bezier(.2, .9, .3, 1) forwards 0.15s; }
   @keyframes slapFish {
     0% { transform: scale(1, 1); }
     40% { transform: rotate(11deg) scale(1.1, 0.9); }
     100% { transform: rotate(4deg) scale(1.02, 0.98); }
   }
-  #stage.out #bubble {
-    animation: bubbleBurst 0.18s ease-in forwards 0.15s;
-  }
+  #stage.out #bubble { animation: bubbleBurst 0.18s ease-in forwards 0.15s; }
   @keyframes bubbleBurst {
     to { transform: translateX(-50%) scale(1.35); opacity: 0; }
   }
-  #stage.out .spark {
-    animation: sparkFly 0.5s ease-out forwards 0.15s;
-  }
+  #stage.out .spark { animation: sparkFly 0.5s ease-out forwards 0.15s; }
   @keyframes sparkFly {
     0% { transform: translate(0, 0) scale(1); opacity: 1; }
     100% { transform: translate(var(--dx), var(--dy)) scale(0.25); opacity: 0; }
   }
-  /* ③ 居中放大 + 欢呼：330ms 起，鱼拉近、放射线转入、开工！弹入 */
   #stage.out #rig { animation: zoomRig 0.32s cubic-bezier(.34, 1.4, .64, 1) forwards 0.33s; }
-  @keyframes zoomRig {
-    to { transform: scale(2.05); }
-  }
-  #stage.out #rays {
-    animation: raysIn 0.5s ease-out forwards 0.33s;
-  }
+  @keyframes zoomRig { to { transform: scale(2.05); } }
+  #stage.out #rays { animation: raysIn 0.5s ease-out forwards 0.33s; }
   @keyframes raysIn {
     0% { transform: scale(0.5) rotate(0deg); opacity: 0; }
     30% { opacity: 0.9; }
     100% { transform: scale(1.05) rotate(24deg); opacity: 0.55; }
   }
-  #stage.out #cheer {
-    animation: cheerIn 0.46s cubic-bezier(.34, 1.56, .64, 1) forwards 0.36s;
-  }
+  #stage.out #cheer { animation: cheerIn 0.46s cubic-bezier(.34, 1.56, .64, 1) forwards 0.36s; }
   @keyframes cheerIn {
     0% { transform: scale(0.2) rotate(-8deg); opacity: 0; }
     60% { transform: scale(1.12) rotate(2deg); opacity: 1; }
     100% { transform: scale(1) rotate(-1.5deg); opacity: 1; }
   }
-  /* ④ 进度条/水印退场（谢幕时不再需要） */
-  #stage.out #hud, #stage.out #ripple { animation: fadeOut 0.2s ease forwards 0.15s; }
+  /* 谢幕时清单/进度/雷达/声呐退场 */
+  #stage.out #checklist, #stage.out #hud, #stage.out #ripple,
+  #stage.out #radar, #stage.out .sonar { animation: fadeOut 0.2s ease forwards 0.15s; }
   @keyframes fadeOut { to { opacity: 0; } }
 
   /* 减少动态偏好：不做编排，静态候场；__splashOut 只做整页淡出 */
   @media (prefers-reduced-motion: reduce) {
-    #fish-rig, #fish, #bubble, #ring, #ripple, #progress::after { animation: none !important; }
-    #stage.out #fish-rig, #stage.out #fish, #stage.out #bubble,
-    #stage.out #rig, #stage.out #rays, #stage.out #cheer,
-    #stage.out .spark, #stage.out #hud, #stage.out #ripple { animation: none !important; }
+    #fish-rig, #fish, #bubble, #ring, #ripple, #radar, .sonar, #progress::after { animation: none !important; }
+    #stage.out #fish-rig, #stage.out #fish, #stage.out #bubble, #stage.out #rig,
+    #stage.out #rays, #stage.out #cheer, #stage.out .spark, #stage.out #checklist,
+    #stage.out #hud, #stage.out #ripple, #stage.out #radar, #stage.out .sonar,
+    #stage.out #wordmark { animation: none !important; transition: none !important; }
     #cheer { opacity: 0; }
   }
 </style>
@@ -310,13 +414,16 @@
     <div id="scene">
       <div id="wordmark">DeepSeek Harness</div>
       <div id="rig">
-        <div id="bubble"><span id="status">正在启动服务 …</span></div>
+        <div id="radar"></div>
+        <span class="sonar"></span>
+        <span class="sonar s2"></span>
         <svg id="ring" viewBox="0 0 200 200" fill="none">
           <circle cx="100" cy="100" r="94" stroke="rgba(190,214,246,0.30)"
             stroke-width="2" stroke-dasharray="5 13" stroke-linecap="round" />
           <circle cx="100" cy="100" r="78" stroke="rgba(190,214,246,0.14)"
             stroke-width="1.5" stroke-dasharray="3 18" stroke-linecap="round" />
         </svg>
+        <div id="bubble"><span id="status">正在启动服务 …</span></div>
         <span class="spark" style="--dx:-58px; --dy:-30px"></span>
         <span class="spark" style="--dx:-24px; --dy:-62px"></span>
         <span class="spark" style="--dx:26px;  --dy:-60px"></span>
@@ -324,12 +431,21 @@
         <span class="spark" style="--dx:52px;  --dy:34px"></span>
         <span class="spark" style="--dx:-14px; --dy:56px"></span>
         <span class="spark" style="--dx:-56px; --dy:26px"></span>
-        <div id="fish-rig"><img id="fish" src="../assets/icon_app.png" alt="" draggable="false" /></div>
+        <div id="fish-rig">
+          <div id="scanline"></div>
+          <img id="fish" src="../assets/icon_app.png" alt="" draggable="false" />
+        </div>
         <div id="ripple"></div>
         <div id="finale">
           <div id="rays"></div>
           <div id="cheer">开工！</div>
         </div>
+      </div>
+      <div id="checklist">
+        <div class="ck-row" data-i="0"><span class="ck-box">✓</span><span>定位 dsh CLI</span></div>
+        <div class="ck-row" data-i="1"><span class="ck-box">✓</span><span>启动服务</span></div>
+        <div class="ck-row" data-i="2"><span class="ck-box">✓</span><span>等待服务就绪</span></div>
+        <div class="ck-row" data-i="3"><span class="ck-box">✓</span><span>进入界面</span></div>
       </div>
       <div id="hud">
         <div id="progress"></div>
@@ -355,25 +471,85 @@
     document.getElementById('versep').hidden = false;
   }
 
+  /* ---- 阶段 → 自检清单 ----
+     main.js 的 splashStatus 按序推进：定位 → 启动服务 → 等待服务就绪 → 进入界面。
+     match 是文本匹配优先级，row 是清单行号，两者必须分开：
+     「进入界面」的 match 要排在「等待服务就绪」之前，否则
+     「服务就绪，正在进入界面 …」会被等待态吞掉、勾号停错行。 */
+  const PHASES = [
+    { match: '定位', row: 0 },
+    { match: '启动服务', row: 1 },
+    { match: '进入界面', row: 3 },
+    { match: '等待服务就绪', row: 2 },
+  ];
+  const ckRows = Array.from(document.querySelectorAll('.ck-row'));
+  let currentPhase = -1;
+
+  function renderChecklist(idx) {
+    if (idx === currentPhase) return;
+    const prev = currentPhase;
+    currentPhase = idx;
+    ckRows.forEach(function (row, i) {
+      row.classList.remove('just-done');
+      if (idx < 0) return;
+      if (i < idx) {
+        row.classList.add('done');
+        row.classList.remove('active');
+      } else if (i === idx) {
+        row.classList.add('active');
+        row.classList.remove('done');
+      } else {
+        row.classList.remove('done', 'active');
+      }
+    });
+    // 刚完成的那一项弹一下钩
+    if (prev >= 0 && prev < idx && ckRows[prev]) {
+      const row = ckRows[prev];
+      row.classList.add('done');
+      void row.offsetWidth;
+      row.classList.add('just-done');
+    }
+  }
+
   const statusEl = document.getElementById('status');
   const bubbleEl = document.getElementById('bubble');
+  const fishRig = document.getElementById('fish-rig');
   let popTimer = null;
+  let matTimer = null;
+
+  function materialize() {
+    fishRig.classList.remove('materialize');
+    void fishRig.offsetWidth;
+    fishRig.classList.add('materialize');
+    clearTimeout(matTimer);
+    matTimer = setTimeout(function () { fishRig.classList.remove('materialize'); }, 900);
+  }
+
   window.__setStatus = function (text) {
     if (statusEl.textContent === text) return;
     statusEl.style.opacity = '0';
     setTimeout(function () {
       statusEl.textContent = text;
       statusEl.style.opacity = '1';
-      // 气泡回弹一下，让换行文有「说了句话」的反馈
+      // 气泡回弹
       bubbleEl.classList.remove('pop');
       void bubbleEl.offsetWidth;
       bubbleEl.classList.add('pop');
       clearTimeout(popTimer);
       popTimer = setTimeout(function () { bubbleEl.classList.remove('pop'); }, 460);
+      // 阶段推进 → 清单打钩 + 实体化闪烁
+      let row = -1;
+      for (let i = 0; i < PHASES.length; i++) {
+        if (text.indexOf(PHASES[i].match) !== -1) { row = PHASES[i].row; break; }
+      }
+      if (row >= 0) {
+        renderChecklist(row);
+        materialize();
+      }
     }, 160);
   };
 
-  // 启动耗时计时（0.1s 步进），显示在底部信息行
+  // 启动耗时计时（0.1s 步进）
   const elapsedEl = document.getElementById('elapsed');
   let t0 = Date.now();
   let timer = null;
