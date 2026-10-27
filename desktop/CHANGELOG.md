@@ -4,6 +4,17 @@
 > 「版本徽标 → 版本说明弹窗」（数据来自官方 GitHub Releases）。
 > 本文件随打包自动复制到 release 目录（`版本更新说明.md`）。
 
+## v1.0.6（2026-10-27）— 壳更新下载修复
+
+### 修复
+
+1. **修复应用内「检查更新 → 下载安装包」一直失败**：下载代码把原生 fetch 返回的
+   WHATWG ReadableStream 当成 node-fetch 的 Node 流用（`.on('data')` / `.pipe()`），
+   一点下载就报 `res.body.on is not a function`。已改为 `for await` 逐块落盘，
+   下载进度正常推送。
+2. **下载通道改走 api.github.com 资产接口**（`Accept: application/octet-stream`），
+   不再依赖 github.com 的首跳——公司网络下 api.github.com 稳定可达。
+
 ## v1.0.5（2026-10-27）— 鲸鱼娘 · 未至之境
 
 ### 全新主题预设
