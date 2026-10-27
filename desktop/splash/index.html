@@ -14,89 +14,191 @@
   }
   /* 整页过渡容器：退场时整体淡出。主界面同为 #181818 深底，换页无缝衔接 */
   #stage { position: fixed; inset: 0; }
-  #stage.leaving { animation: stageOut 0.42s ease forwards; }
+  #stage.leaving { animation: stageOut 0.22s ease forwards; }
   @keyframes stageOut { to { opacity: 0; } }
 
-  /* ---- 小肥鱼加载场景：居中构图，替代旧骨架屏 ----
-     素材 = 壳图标（assets/icon_app.png，浅蓝圆环徽章内的 Q 版小肥鱼，
-     与 GitHub 仓库图标同源），配「浮在水面等服务」的动效：
-     徽章上下浮动 + 身后光晕呼吸 + 周围气泡上浮 + 下方水面涟漪。
-     全部动画只用 transform/opacity（合成器路径），启动页不走 JS 循环。 */
+  /* ============ 小肥鱼开场（编排参考社区 dsh-whale-startup 的设计语言，
+     素材与实现均为本项目自有）============
+     候场循环 ≈ 5.4s：呼吸缩放 → 左右张望 → 性急小跳 → 气泡轻晃；
+     谢幕（__splashOut 触发）：蓄力后仰 → 拍走气泡 → 居中放大 →
+     放射线 + 粗描边「开工！」→ 淡出。共用一套 #rig/#fish 变换分层：
+     rig 负责大动作（跳/放大），fish 负责细节（呼吸/倾斜/抖动）。 */
+
   #scene {
     position: absolute; inset: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    padding-bottom: 7vh; /* 视觉重心略上移，给下方状态行留呼吸 */
-  }
-  #pool { position: relative; width: 250px; height: 230px; flex: none; }
-
-  /* 光晕：徽章身后一团淡蓝呼吸光，跟随浮动节奏 */
-  #glow {
-    position: absolute; left: 50%; top: 46%;
-    width: 240px; height: 240px;
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    background: radial-gradient(circle,
-      rgba(150, 182, 228, 0.16) 0%,
-      rgba(150, 182, 228, 0.05) 45%,
-      transparent 70%);
-    animation: glow 3.2s ease-in-out infinite;
-  }
-  @keyframes glow {
-    0%, 100% { transform: translate(-50%, -50%) scale(0.92); opacity: 0.55; }
-    50%      { transform: translate(-50%, -50%) scale(1.1);  opacity: 1; }
+    padding-bottom: 6vh;
   }
 
-  /* 小肥鱼本体：轻微浮沉 + 左右微倾，像漂在水面上 */
+  /* 字标：对应参考实现里保留的原生 HARNESS 字样 */
+  #wordmark {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 4.5px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.46);
+    margin-bottom: 26px;
+    user-select: none;
+  }
+
+  /* 候场区：气泡 + 鱼 + 旋转环 + 涟漪 */
+  #rig {
+    position: relative;
+    width: 260px; height: 250px;
+    flex: none;
+  }
+
+  /* ---- 漫画气泡：候场对白（= 状态文案），谢幕时被拍走 ---- */
+  #bubble {
+    position: absolute;
+    left: 50%; top: -6px;
+    transform: translateX(-50%);
+    max-width: 230px;
+    padding: 9px 15px 10px;
+    background: #f2f4f8;
+    color: #1b1b1f;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.35;
+    text-align: center;
+    border-radius: 14px;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transform-origin: 50% 120%;
+    animation: bubbleFloat 3.4s ease-in-out infinite;
+    z-index: 3;
+  }
+  /* 气泡尾巴：旋转方块做小尖角 */
+  #bubble::after {
+    content: "";
+    position: absolute;
+    left: 50%; bottom: -5px;
+    width: 12px; height: 12px;
+    margin-left: -6px;
+    background: #f2f4f8;
+    border-radius: 3px;
+    transform: rotate(45deg);
+  }
+  @keyframes bubbleFloat {
+    0%, 100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+    50%      { transform: translateX(-50%) translateY(-5px) rotate(-1deg); }
+  }
+  /* 状态切换：气泡回弹一下 */
+  #bubble.pop { animation: bubblePop 0.42s cubic-bezier(.34, 1.56, .64, 1) both; }
+  @keyframes bubblePop {
+    0% { transform: translateX(-50%) scale(0.72); }
+    60% { transform: translateX(-50%) scale(1.07); }
+    100% { transform: translateX(-50%) scale(1); }
+  }
+  #status { display: inline-block; transition: opacity 0.16s ease; }
+
+  /* ---- 旋转圆环：对应参考实现保留的原生旋转环 ---- */
+  #ring {
+    position: absolute;
+    left: 50%; top: 47%;
+    width: 196px; height: 196px;
+    margin: -98px 0 0 -98px;
+    animation: ringSpin 11s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes ringSpin { to { transform: rotate(360deg); } }
+
+  /* ---- 小肥鱼本体：rig 管大动作，fish 管呼吸/倾斜 ---- */
+  #fish-rig {
+    position: absolute;
+    left: 50%; top: 47%;
+    width: 138px; height: 138px;
+    margin: -69px 0 0 -69px;
+    animation: rigIdle 5.4s ease-in-out infinite;
+  }
+  /* 呼吸 + 张望 + 性急小跳：一条长关键帧里编排完，其余时间是平的 */
+  @keyframes rigIdle {
+    0%   { transform: translateY(0) rotate(0deg) scale(1); }
+    16%  { transform: translateY(-5px) rotate(-1.5deg) scale(1.012); }
+    30%  { transform: translateY(-5px) rotate(1.5deg) scale(1.012); }
+    44%  { transform: translateY(-5px) rotate(0deg) scale(1.012); }
+    56%  { transform: translateY(0) rotate(0deg) scale(1); }
+    66%  { transform: translateY(0) rotate(-3deg) scale(1); }
+    70%  { transform: translateY(-9px) rotate(3deg) scale(1.03); }   /* 性急小跳 */
+    74%  { transform: translateY(0) rotate(3deg) scale(1.03); }
+    80%  { transform: translateY(-9px) rotate(0deg) scale(1.03); }
+    84%  { transform: translateY(0) rotate(0deg) scale(1.03); }
+    100% { transform: translateY(0) rotate(0deg) scale(1); }
+  }
   #fish {
-    position: absolute; left: 50%; top: 44%;
-    width: 148px; height: 148px;
-    margin: -74px 0 0 -74px;
+    width: 100%; height: 100%;
     border-radius: 50%;
-    animation: bob 3.2s ease-in-out infinite;
-    filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.45));
+    animation: fishBreath 2.7s ease-in-out infinite;
+    filter: drop-shadow(0 14px 26px rgba(0, 0, 0, 0.45));
     user-select: none; pointer-events: none;
   }
-  @keyframes bob {
-    0%, 100% { transform: translateY(7px) rotate(-2deg); }
-    50%      { transform: translateY(-9px) rotate(2deg); }
+  @keyframes fishBreath {
+    0%, 100% { transform: scale(1, 1); }
+    50%      { transform: scale(0.965, 1.035); }
   }
 
-  /* 水面涟漪：鱼下方一道椭圆微光，与浮动同节奏缩放 */
+  /* 水面涟漪 */
   #ripple {
-    position: absolute; left: 50%; bottom: 2px;
+    position: absolute; left: 50%; bottom: 4px;
     width: 150px; height: 24px;
     margin-left: -75px;
     border-radius: 50%;
     background: radial-gradient(ellipse at center,
       rgba(200, 220, 248, 0.12), transparent 65%);
-    animation: ripple 3.2s ease-in-out infinite;
+    animation: ripple 3.4s ease-in-out infinite;
   }
   @keyframes ripple {
     0%, 100% { transform: scaleX(0.85); opacity: 0.5; }
     50%      { transform: scaleX(1.12); opacity: 0.15; }
   }
 
-  /* 气泡：从鱼身边缘持续上浮，错峰循环 */
-  .bub {
-    position: absolute; bottom: 26px;
-    width: var(--s, 8px); height: var(--s, 8px);
+  /* ---- 谢幕粒子（拍走气泡时四散）---- */
+  .spark {
+    position: absolute;
+    left: 50%; top: 16px;
+    width: 7px; height: 7px;
+    margin: -3.5px 0 0 -3.5px;
     border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%,
-      rgba(215, 232, 252, 0.55), rgba(190, 215, 245, 0.16));
+    background: rgba(242, 244, 248, 0.9);
     opacity: 0;
-    animation: rise var(--t, 3.6s) linear infinite;
-    animation-delay: var(--d, 0s);
-  }
-  @keyframes rise {
-    0%   { transform: translateY(0) scale(0.7); opacity: 0; }
-    14%  { opacity: 0.75; }
-    78%  { opacity: 0.35; }
-    100% { transform: translateY(-128px) scale(1.3); opacity: 0; }
+    z-index: 4;
   }
 
-  /* 状态区：进度条 + 状态行，居中放在场景下方 */
-  #hud { margin-top: 30px; width: 100%; flex: none; text-align: center; }
+  /* ---- 谢幕：开工！大字 + 放射线 ---- */
+  #finale {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #rays {
+    position: absolute;
+    width: 460px; height: 460px;
+    border-radius: 50%;
+    background: repeating-conic-gradient(
+      rgba(255, 255, 255, 0.075) 0deg 5deg,
+      transparent 5deg 11deg);
+    -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 68%);
+            mask-image: radial-gradient(circle, #000 0%, transparent 68%);
+    opacity: 0;
+  }
+  #cheer {
+    position: relative;
+    font-size: 66px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: #ffffff;
+    -webkit-text-stroke: 3.5px #181818;
+    paint-order: stroke fill;
+    text-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+    transform: scale(0.2) rotate(-8deg);
+    opacity: 0;
+  }
+
+  /* ---- 底部：进度条 + 耗时/版本 ---- */
+  #hud { margin-top: 34px; width: 100%; flex: none; text-align: center; }
   #progress {
     position: relative;
     width: 210px; height: 3px;
@@ -117,17 +219,16 @@
     from { transform: translateX(-110%); }
     to   { transform: translateX(370%); }
   }
-  #statusline {
+  #metaline {
     margin-top: 12px;
     font-size: 12px;
     line-height: 17px;
     color: rgba(255, 255, 255, 0.42);
     letter-spacing: 0.3px;
     font-variant-numeric: tabular-nums;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  #statusline .sep { margin: 0 7px; color: rgba(255, 255, 255, 0.16); }
-  #status { display: inline; transition: opacity 0.16s ease; }
+  #metaline .sep { margin: 0 7px; color: rgba(255, 255, 255, 0.16); }
   #elapsed { color: rgba(255, 255, 255, 0.22); }
 
   /* gif 挂件：右下角，同主题挂件位（client-src.js mascot：right 14 / bottom 12 /
@@ -143,30 +244,97 @@
     z-index: 10;
   }
 
-  /* 减少动态偏好：全部动效停掉，只留静态徽章与状态行 */
+  /* ============ 谢幕编排（.out 由 __splashOut 触发，链式 animation-delay）============ */
+  /* ① 蓄力后仰：0 ~ 150ms */
+  #stage.out #fish-rig { animation: windup 0.15s ease-in forwards; }
+  @keyframes windup {
+    to { transform: translateY(-12px) rotate(-9deg) scale(1.04); }
+  }
+  /* ② 拍走：150 ~ 330ms 鱼前倾下压 + 气泡爆开 + 粒子四散 */
+  #stage.out #fish { animation: slapFish 0.2s cubic-bezier(.2, .9, .3, 1) forwards 0.15s; }
+  @keyframes slapFish {
+    0% { transform: scale(1, 1); }
+    40% { transform: rotate(11deg) scale(1.1, 0.9); }
+    100% { transform: rotate(4deg) scale(1.02, 0.98); }
+  }
+  #stage.out #bubble {
+    animation: bubbleBurst 0.18s ease-in forwards 0.15s;
+  }
+  @keyframes bubbleBurst {
+    to { transform: translateX(-50%) scale(1.35); opacity: 0; }
+  }
+  #stage.out .spark {
+    animation: sparkFly 0.5s ease-out forwards 0.15s;
+  }
+  @keyframes sparkFly {
+    0% { transform: translate(0, 0) scale(1); opacity: 1; }
+    100% { transform: translate(var(--dx), var(--dy)) scale(0.25); opacity: 0; }
+  }
+  /* ③ 居中放大 + 欢呼：330ms 起，鱼拉近、放射线转入、开工！弹入 */
+  #stage.out #rig { animation: zoomRig 0.32s cubic-bezier(.34, 1.4, .64, 1) forwards 0.33s; }
+  @keyframes zoomRig {
+    to { transform: scale(2.05); }
+  }
+  #stage.out #rays {
+    animation: raysIn 0.5s ease-out forwards 0.33s;
+  }
+  @keyframes raysIn {
+    0% { transform: scale(0.5) rotate(0deg); opacity: 0; }
+    30% { opacity: 0.9; }
+    100% { transform: scale(1.05) rotate(24deg); opacity: 0.55; }
+  }
+  #stage.out #cheer {
+    animation: cheerIn 0.46s cubic-bezier(.34, 1.56, .64, 1) forwards 0.36s;
+  }
+  @keyframes cheerIn {
+    0% { transform: scale(0.2) rotate(-8deg); opacity: 0; }
+    60% { transform: scale(1.12) rotate(2deg); opacity: 1; }
+    100% { transform: scale(1) rotate(-1.5deg); opacity: 1; }
+  }
+  /* ④ 进度条/水印退场（谢幕时不再需要） */
+  #stage.out #hud, #stage.out #ripple { animation: fadeOut 0.2s ease forwards 0.15s; }
+  @keyframes fadeOut { to { opacity: 0; } }
+
+  /* 减少动态偏好：不做编排，静态候场；__splashOut 只做整页淡出 */
   @media (prefers-reduced-motion: reduce) {
-    #fish, #glow, #ripple, .bub, #progress::after { animation: none; }
-    .bub { opacity: 0; }
+    #fish-rig, #fish, #bubble, #ring, #ripple, #progress::after { animation: none !important; }
+    #stage.out #fish-rig, #stage.out #fish, #stage.out #bubble,
+    #stage.out #rig, #stage.out #rays, #stage.out #cheer,
+    #stage.out .spark, #stage.out #hud, #stage.out #ripple { animation: none !important; }
+    #cheer { opacity: 0; }
   }
 </style>
 </head>
 <body>
   <div id="stage">
     <div id="scene">
-      <div id="pool">
-        <div id="glow"></div>
-        <span class="bub" style="left:34%; --s:7px;  --t:3.8s; --d:0s"></span>
-        <span class="bub" style="left:58%; --s:9px;  --t:3.2s; --d:.9s"></span>
-        <span class="bub" style="left:44%; --s:6px;  --t:4.4s; --d:1.7s"></span>
-        <span class="bub" style="left:66%; --s:5px;  --t:3.5s; --d:2.3s"></span>
-        <span class="bub" style="left:50%; --s:7px;  --t:4.1s; --d:2.9s"></span>
-        <img id="fish" src="../assets/icon_app.png" alt="" draggable="false" />
+      <div id="wordmark">DeepSeek Harness</div>
+      <div id="rig">
+        <div id="bubble"><span id="status">正在启动服务 …</span></div>
+        <svg id="ring" viewBox="0 0 200 200" fill="none">
+          <circle cx="100" cy="100" r="94" stroke="rgba(190,214,246,0.30)"
+            stroke-width="2" stroke-dasharray="5 13" stroke-linecap="round" />
+          <circle cx="100" cy="100" r="78" stroke="rgba(190,214,246,0.14)"
+            stroke-width="1.5" stroke-dasharray="3 18" stroke-linecap="round" />
+        </svg>
+        <span class="spark" style="--dx:-58px; --dy:-30px"></span>
+        <span class="spark" style="--dx:-24px; --dy:-62px"></span>
+        <span class="spark" style="--dx:26px;  --dy:-60px"></span>
+        <span class="spark" style="--dx:60px;  --dy:-24px"></span>
+        <span class="spark" style="--dx:52px;  --dy:34px"></span>
+        <span class="spark" style="--dx:-14px; --dy:56px"></span>
+        <span class="spark" style="--dx:-56px; --dy:26px"></span>
+        <div id="fish-rig"><img id="fish" src="../assets/icon_app.png" alt="" draggable="false" /></div>
         <div id="ripple"></div>
+        <div id="finale">
+          <div id="rays"></div>
+          <div id="cheer">开工！</div>
+        </div>
       </div>
       <div id="hud">
         <div id="progress"></div>
-        <div id="statusline">
-          <span id="status">正在启动服务 …</span><span class="sep">·</span><span id="elapsed">0.0 s</span><span class="sep" id="versep" hidden>·</span><span id="ver" hidden></span>
+        <div id="metaline">
+          <span id="elapsed">0.0 s</span><span class="sep" id="versep" hidden>·</span><span id="ver" hidden></span>
         </div>
       </div>
     </div>
@@ -188,16 +356,24 @@
   }
 
   const statusEl = document.getElementById('status');
+  const bubbleEl = document.getElementById('bubble');
+  let popTimer = null;
   window.__setStatus = function (text) {
     if (statusEl.textContent === text) return;
     statusEl.style.opacity = '0';
     setTimeout(function () {
       statusEl.textContent = text;
       statusEl.style.opacity = '1';
+      // 气泡回弹一下，让换行文有「说了句话」的反馈
+      bubbleEl.classList.remove('pop');
+      void bubbleEl.offsetWidth;
+      bubbleEl.classList.add('pop');
+      clearTimeout(popTimer);
+      popTimer = setTimeout(function () { bubbleEl.classList.remove('pop'); }, 460);
     }, 160);
   };
 
-  // 启动耗时计时（0.1s 步进），显示在状态行
+  // 启动耗时计时（0.1s 步进），显示在底部信息行
   const elapsedEl = document.getElementById('elapsed');
   let t0 = Date.now();
   let timer = null;
@@ -210,19 +386,27 @@
   };
   startTimer();
 
-  // 主进程在服务就绪、即将加载界面时调用：整页淡出（约 430ms）后再换页，
-  // 时序与 main.js 的 withTimeout(splashOut(), 1200) 串行等待配套，不得缩短或异步化
+  // 主进程在服务就绪、即将加载界面时调用：播放谢幕编排（蓄力→拍走→放大欢呼）
+  // 约 0.9s 后整页淡出。时序与 main.js 的 withTimeout(splashOut(), 1200) 串行
+  // 等待配套：900ms 在上限内留足余量，不得加长超过 1.1s
   window.__splashOut = function () {
     return new Promise(function (resolve) {
       clearInterval(timer);
-      document.getElementById('stage').classList.add('leaving');
-      setTimeout(resolve, 430);
+      const stage = document.getElementById('stage');
+      stage.classList.remove('out');
+      void stage.offsetWidth;
+      stage.classList.add('out');
+      setTimeout(function () {
+        stage.classList.add('leaving');
+        setTimeout(resolve, 220);
+      }, 700);
     });
   };
 
-  // 淡出后需要回退重试（预热服务失联转自启动）时，恢复场景可见并重置计时
+  // 淡出后需要回退重试（预热服务失联转自启动）时，恢复候场并重置计时
   window.__splashIn = function () {
-    document.getElementById('stage').classList.remove('leaving');
+    const stage = document.getElementById('stage');
+    stage.classList.remove('out', 'leaving');
     startTimer();
   };
 </script>
