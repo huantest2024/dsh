@@ -41,7 +41,7 @@
     position: absolute; inset: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    padding-bottom: 4vh;
+    padding-bottom: 2vh;
   }
 
   /* 字标：谢幕时电光蓝点亮 */
@@ -51,7 +51,7 @@
     letter-spacing: 5px;
     text-transform: uppercase;
     color: rgba(232, 241, 255, 0.5);
-    margin-bottom: 20px;
+    margin-bottom: 12px;
     user-select: none;
     transition: color 0.3s ease, text-shadow 0.3s ease;
   }
@@ -63,7 +63,7 @@
   /* ---- 候场区：HUD 环 + 鲸鱼 ---- */
   #rig {
     position: relative;
-    width: 380px; height: 380px;
+    width: 56vh; height: 56vh;
     flex: none;
     opacity: 0;
     animation: rigIn 1s cubic-bezier(.22, .68, .32, 1) 0.05s forwards;
@@ -77,8 +77,8 @@
   #glow {
     position: absolute;
     left: 50%; top: 50%;
-    width: 300px; height: 300px;
-    margin: -150px 0 0 -150px;
+    width: 44vh; height: 44vh;
+    margin: -22vh 0 0 -22vh;
     border-radius: 50%;
     background: radial-gradient(circle,
       rgba(58, 123, 255, 0.2) 0%,
@@ -93,16 +93,16 @@
 
   /* HUD 环组：外圈虚线 / 刻度环 / 反向弧 / 内细环 + 四角括角（1px 冷蓝） */
   #hud { position: absolute; inset: 0; pointer-events: none; }
-  #hud .spin-a { animation: spinA 16s linear infinite; transform-origin: 190px 190px; }
-  #hud .spin-b { animation: spinB 9s linear infinite reverse; transform-origin: 190px 190px; }
+  #hud .spin-a { animation: spinA 16s linear infinite; transform-origin: 280px 280px; }
+  #hud .spin-b { animation: spinB 9s linear infinite reverse; transform-origin: 280px 280px; }
   @keyframes spinA { to { transform: rotate(360deg); } }
   @keyframes spinB { to { transform: rotate(360deg); } }
   /* 雷达扫描楔形（青色，极淡） */
   #radar {
     position: absolute;
     left: 50%; top: 50%;
-    width: 340px; height: 340px;
-    margin: -170px 0 0 -170px;
+    width: 50vh; height: 50vh;
+    margin: -25vh 0 0 -25vh;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
       rgba(57, 255, 209, 0.13) 0deg,
@@ -118,8 +118,8 @@
   .sonar {
     position: absolute;
     left: 50%; top: 50%;
-    width: 240px; height: 240px;
-    margin: -120px 0 0 -120px;
+    width: 36vh; height: 36vh;
+    margin: -18vh 0 0 -18vh;
     border: 1px solid rgba(58, 123, 255, 0.4);
     border-radius: 50%;
     opacity: 0;
@@ -136,8 +136,8 @@
   #fish-rig {
     position: absolute;
     left: 50%; top: 50%;
-    width: 38vh; height: 38vh;
-    margin: -19vh 0 0 -19vh;
+    width: 50vh; height: 50vh;
+    margin: -25vh 0 0 -25vh;
     animation: rigIdle 5.4s ease-in-out infinite;
   }
   @keyframes rigIdle {
@@ -190,10 +190,10 @@
 
   /* ---- 玻璃仪表盘：终端 + 自检清单（皮肤同款 pane 渐变 + 1px 冷蓝边 + 青色内沿）---- */
   #console {
-    margin-top: 20px;
+    margin-top: 14px;
     width: 460px;
     max-width: 86vw;
-    padding: 14px 18px 15px;
+    padding: 12px 16px 13px;
     border-radius: 12px;
     border: 1px solid rgba(30, 58, 107, 0.73);
     background:
@@ -231,8 +231,8 @@
   }
   /* 自检清单 */
   #checklist {
-    margin-top: 11px;
-    display: flex; flex-direction: column; gap: 5px;
+    margin-top: 9px;
+    display: flex; flex-direction: column; gap: 4px;
     font-family: "Cascadia Mono", "Consolas", monospace;
     font-size: 12px;
     letter-spacing: 0.4px;
@@ -256,7 +256,7 @@
   }
 
   /* ---- 底部：进度条 + 耗时/版本 ---- */
-  #hudbar { margin-top: 18px; width: 100%; flex: none; text-align: center; }
+  #hudbar { margin-top: 14px; width: 100%; flex: none; text-align: center; }
   #progress {
     position: relative;
     width: 240px; height: 2px;
@@ -304,8 +304,8 @@
   #shock {
     position: absolute;
     left: 50%; top: 50%;
-    width: 38vh; height: 38vh;
-    margin: -19vh 0 0 -19vh;
+    width: 50vh; height: 50vh;
+    margin: -25vh 0 0 -25vh;
     border: 3px solid rgba(57, 255, 209, 0.9);
     border-radius: 50%;
     opacity: 0;
@@ -417,23 +417,23 @@
         <div id="radar"></div>
         <span class="sonar"></span>
         <span class="sonar s2"></span>
-        <svg id="hud" viewBox="0 0 380 380" fill="none">
+        <svg id="hud" viewBox="0 0 560 560" fill="none">
           <g class="spin-a">
-            <circle cx="190" cy="190" r="176" stroke="rgba(30,58,107,0.85)"
+            <circle cx="280" cy="280" r="262" stroke="rgba(30,58,107,0.85)"
               stroke-width="1.5" stroke-dasharray="4 14" stroke-linecap="round" />
-            <circle cx="190" cy="190" r="158" stroke="rgba(30,58,107,0.5)"
+            <circle cx="280" cy="280" r="236" stroke="rgba(30,58,107,0.5)"
               stroke-width="5" stroke-dasharray="2 10" stroke-linecap="round" />
           </g>
           <g class="spin-b">
-            <circle cx="190" cy="190" r="166" stroke="rgba(58,123,255,0.55)"
+            <circle cx="280" cy="280" r="248" stroke="rgba(58,123,255,0.55)"
               stroke-width="2" stroke-dasharray="46 700" stroke-linecap="round" />
           </g>
-          <circle cx="190" cy="190" r="148" stroke="rgba(30,58,107,0.45)" stroke-width="1" />
+          <circle cx="280" cy="280" r="222" stroke="rgba(30,58,107,0.45)" stroke-width="1" />
           <!-- 四角括角 -->
-          <path d="M18 46 L18 18 L46 18" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
-          <path d="M334 18 L362 18 L362 46" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
-          <path d="M362 334 L362 362 L334 362" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
-          <path d="M46 362 L18 362 L18 334" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
+          <path d="M26 70 L26 26 L70 26" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
+          <path d="M490 26 L534 26 L534 70" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
+          <path d="M534 490 L534 534 L490 534" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
+          <path d="M70 534 L26 534 L26 490" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
         </svg>
         <div id="fish-rig">
           <div id="scanline"></div>
