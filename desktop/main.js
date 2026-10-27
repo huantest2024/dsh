@@ -769,7 +769,14 @@ function createWindow(splashGifPath) {
   mainWindow.on('unmaximize', () => syncBarMaximized(false))
   barView.webContents.loadFile(path.join(APP_ROOT, 'bar.html'))
   // 顶栏加载完成即推一次版本徽标状态（初始渲染）
-  barView.webContents.once('did-finish-load', () => pushBadgeState())
+  barView.webContents.once('did-finish-load', () => {
+    pushBadgeState()
+    // 片头期间顶栏强制深色：启动页是深海暗底（皮肤「鲸鱼娘·未至之境」的视频背景），
+    // 浅色顶栏会和它割裂；主界面加载后由 theme-changed 按页面实际深浅接管
+    if (barView && !barView.webContents.isDestroyed()) {
+      barView.webContents.send('bar-theme', { dark: true, accent: barAccentCache })
+    }
+  })
 
   contentView.webContents.loadFile(path.join(APP_ROOT, 'splash', 'index.html'), {
     search: `gif=${encodeURIComponent(splashGifPath || '')}&ver=${encodeURIComponent(versionRef.value || '')}`,
