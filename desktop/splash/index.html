@@ -16,17 +16,16 @@
   #stage.leaving { animation: stageOut 0.22s ease forwards; }
   @keyframes stageOut { to { opacity: 0; } }
 
-  /* ============ 小肥鱼深海开场 · 全息仪表盘版 ============
-     视觉语言取自社区皮肤「鲸鱼娘 · 未至之境」(whale-fantasy) 的设计约定
-     （夜底 #05070D / 层级 #0a1020·#142847 / 1px 冷蓝结构线 #1e3a6b /
-      电光蓝 #3A7BFF / 状态青 #39FFD1 / 银白 #E8F1FF / 薄玻璃面板），
-     素材与实现均为本项目自有：数据雨、遥测 HUD、玻璃仪表盘、鲸鱼徽章。
-     构成：深海夜底 + 双色环境辉光 + canvas 数据雨 + 38vh 鲸鱼徽章（电光蓝
-     外辉 + 青色内沿）+ 遥测 HUD 环 + 玻璃仪表盘（终端打字机 + 自检清单）；
-     谢幕：蓄力 → 拍走（终端故障 + 青色冲击波）→ 居中放大 + 放射线 +
-     「开工！」→ 白闪淡出。 */
+  /* ============ 加载中间态 = 皮肤「鲸鱼娘 · 未至之境」============
+     片头直接沿用该皮肤的视觉本体（背景视频 whale-fantasy-loop.mp4，
+     CC BY-NC-SA 4.0 © stushansusu，见 assets/whale-fantasy-loop.LICENSE.txt），
+     叠加皮肤同款的玻璃仪表盘（终端打字机 + 自检清单），
+     使片头与片尾工作区（同一皮肤）视觉连续。
+     全响应式：一切尺寸走 clamp()/vh/vw，任意窗口尺寸不裁切、不溢出。
+     层级：夜底+环境辉光（兜底）→ 数据雨 canvas（兜底）→ 皮肤视频 →
+           压暗 scrim → 品牌锁定 → 玻璃仪表盘 → 进度/耗时 → 挂件。 */
 
-  /* ---- 夜底 + 双色环境辉光（皮肤的同款 pane 渐变）---- */
+  /* ---- 兜底层：夜底 + 双色环境辉光（视频不可用时的退路）---- */
   #ambient {
     position: absolute; inset: 0;
     background:
@@ -34,25 +33,54 @@
       radial-gradient(95% 70% at 8% 92%, rgba(58, 123, 255, 0.08) 0%, transparent 64%),
       #05070d;
   }
-  /* 数据雨画布 */
   #fx { position: absolute; inset: 0; pointer-events: none; }
+
+  /* ---- 皮肤视频背景（主角）---- */
+  #bgvid {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    object-position: 50% 42%;
+    pointer-events: none;
+  }
+  /* 压暗：整体轻罩 + 底部加重（保仪表盘可读），角色保持清晰 */
+  #scrim {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(78% 66% at 50% 34%, rgba(5, 7, 13, 0.18) 0%, rgba(5, 7, 13, 0.52) 100%),
+      linear-gradient(180deg, rgba(5, 7, 13, 0.5) 0%, transparent 20%, transparent 46%, rgba(5, 7, 13, 0.78) 100%);
+  }
 
   #scene {
     position: absolute; inset: 0;
     display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    padding-bottom: 2vh;
+    align-items: center;
+    padding: clamp(14px, 3vh, 30px) clamp(12px, 3vw, 32px);
+    overflow: hidden;
   }
 
-  /* 字标：谢幕时电光蓝点亮 */
+  /* ---- 品牌锁定：小徽章 + 字标 ---- */
+  #brand {
+    display: flex; flex-direction: column;
+    align-items: center;
+    gap: clamp(6px, 1.2vh, 12px);
+    flex: none;
+  }
+  #badge {
+    width: clamp(52px, 8.5vh, 96px);
+    height: clamp(52px, 8.5vh, 96px);
+    border-radius: 50%;
+    filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 16px rgba(58, 123, 255, 0.35));
+    user-select: none; pointer-events: none;
+  }
   #wordmark {
-    font-size: 13px;
+    font-size: clamp(10px, 1.5vh, 13px);
     font-weight: 600;
-    letter-spacing: 5px;
+    letter-spacing: clamp(2px, 0.5vw, 5px);
     text-transform: uppercase;
-    color: rgba(232, 241, 255, 0.5);
-    margin-bottom: 12px;
+    color: rgba(232, 241, 255, 0.62);
     user-select: none;
+    white-space: nowrap;
     transition: color 0.3s ease, text-shadow 0.3s ease;
   }
   #stage.out #wordmark {
@@ -60,146 +88,17 @@
     text-shadow: 0 0 18px rgba(58, 123, 255, 0.75);
   }
 
-  /* ---- 候场区：HUD 环 + 鲸鱼 ---- */
-  #rig {
-    position: relative;
-    width: 56vh; height: 56vh;
-    flex: none;
-    opacity: 0;
-    animation: rigIn 1s cubic-bezier(.22, .68, .32, 1) 0.05s forwards;
-  }
-  @keyframes rigIn {
-    from { transform: translateY(26vh) scale(0.72); filter: blur(14px); opacity: 0; }
-    to   { transform: translateY(0) scale(1); filter: blur(0); opacity: 1; }
-  }
-
-  /* 鲸鱼身后的电光蓝遥测辉光 */
-  #glow {
-    position: absolute;
-    left: 50%; top: 50%;
-    width: 44vh; height: 44vh;
-    margin: -22vh 0 0 -22vh;
-    border-radius: 50%;
-    background: radial-gradient(circle,
-      rgba(58, 123, 255, 0.2) 0%,
-      rgba(58, 123, 255, 0.07) 42%,
-      transparent 68%);
-    animation: glowPulse 3.4s ease-in-out infinite;
-  }
-  @keyframes glowPulse {
-    0%, 100% { transform: scale(0.94); opacity: 0.75; }
-    50%      { transform: scale(1.08); opacity: 1; }
-  }
-
-  /* HUD 环组：外圈虚线 / 刻度环 / 反向弧 / 内细环 + 四角括角（1px 冷蓝） */
-  #hud { position: absolute; inset: 0; pointer-events: none; }
-  #hud .spin-a { animation: spinA 16s linear infinite; transform-origin: 280px 280px; }
-  #hud .spin-b { animation: spinB 9s linear infinite reverse; transform-origin: 280px 280px; }
-  @keyframes spinA { to { transform: rotate(360deg); } }
-  @keyframes spinB { to { transform: rotate(360deg); } }
-  /* 雷达扫描楔形（青色，极淡） */
-  #radar {
-    position: absolute;
-    left: 50%; top: 50%;
-    width: 50vh; height: 50vh;
-    margin: -25vh 0 0 -25vh;
-    border-radius: 50%;
-    background: conic-gradient(from 0deg,
-      rgba(57, 255, 209, 0.13) 0deg,
-      rgba(57, 255, 209, 0.03) 30deg,
-      transparent 70deg,
-      transparent 360deg);
-    -webkit-mask-image: radial-gradient(circle, #000 0%, #000 58%, transparent 70%);
-            mask-image: radial-gradient(circle, #000 0%, #000 58%, transparent 70%);
-    animation: radarSpin 2.8s linear infinite;
-  }
-  @keyframes radarSpin { to { transform: rotate(360deg); } }
-  /* 声呐 ping（电光蓝） */
-  .sonar {
-    position: absolute;
-    left: 50%; top: 50%;
-    width: 36vh; height: 36vh;
-    margin: -18vh 0 0 -18vh;
-    border: 1px solid rgba(58, 123, 255, 0.4);
-    border-radius: 50%;
-    opacity: 0;
-    animation: sonarPing 2.8s ease-out infinite;
-  }
-  .sonar.s2 { animation-delay: 1.4s; }
-  @keyframes sonarPing {
-    0% { transform: scale(0.78); opacity: 0; }
-    16% { opacity: 0.45; }
-    100% { transform: scale(1.5); opacity: 0; }
-  }
-
-  /* 鲸鱼本体（38vh 占场；电光蓝外辉 + 青色内沿是全息皮肤的签名配方） */
-  #fish-rig {
-    position: absolute;
-    left: 50%; top: 50%;
-    width: 50vh; height: 50vh;
-    margin: -25vh 0 0 -25vh;
-    animation: rigIdle 5.4s ease-in-out infinite;
-  }
-  @keyframes rigIdle {
-    0%   { transform: translateY(0) rotate(0deg) scale(1); }
-    16%  { transform: translateY(-6px) rotate(-1.2deg) scale(1.008); }
-    30%  { transform: translateY(-6px) rotate(1.2deg) scale(1.008); }
-    44%  { transform: translateY(-6px) rotate(0deg) scale(1.008); }
-    56%  { transform: translateY(0) rotate(0deg) scale(1); }
-    66%  { transform: translateY(0) rotate(-2.4deg) scale(1); }
-    70%  { transform: translateY(-11px) rotate(2.4deg) scale(1.022); }
-    74%  { transform: translateY(0) rotate(2.4deg) scale(1.022); }
-    80%  { transform: translateY(-11px) rotate(0deg) scale(1.022); }
-    84%  { transform: translateY(0) rotate(0deg) scale(1.022); }
-    100% { transform: translateY(0) rotate(0deg) scale(1); }
-  }
-  #fish {
-    width: 100%; height: 100%;
-    border-radius: 50%;
-    filter:
-      drop-shadow(0 18px 42px rgba(0, 0, 0, 0.6))
-      drop-shadow(0 0 24px rgba(58, 123, 255, 0.4));
-    user-select: none; pointer-events: none;
-  }
-  /* 实体化：阶段切换时扫描线掠过 + RGB 分离闪烁 */
-  #scanline {
-    position: absolute;
-    left: 6%; right: 6%;
-    top: 0;
-    height: 3px;
-    border-radius: 2px;
-    background: linear-gradient(90deg, transparent, rgba(57, 255, 209, 0.95) 50%, transparent);
-    box-shadow: 0 0 16px 4px rgba(57, 255, 209, 0.45);
-    opacity: 0;
-    z-index: 4;
-    pointer-events: none;
-  }
-  #fish-rig.materialize #scanline { animation: scanSweep 0.5s ease-in-out 1; }
-  @keyframes scanSweep {
-    0% { top: 4%; opacity: 0; }
-    12% { opacity: 1; }
-    88% { opacity: 1; }
-    100% { top: 96%; opacity: 0; }
-  }
-  #fish-rig.materialize #fish { animation: rgbSplit 0.42s linear 1; }
-  @keyframes rgbSplit {
-    0%, 100% { filter: drop-shadow(0 18px 42px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 24px rgba(58, 123, 255, 0.4)); }
-    20% { filter: drop-shadow(4px 0 rgba(57, 255, 209, 0.9)) drop-shadow(-4px 0 rgba(58, 123, 255, 0.9)) drop-shadow(0 18px 42px rgba(0, 0, 0, 0.6)); }
-    55% { filter: drop-shadow(2px 0 rgba(57, 255, 209, 0.55)) drop-shadow(-2px 0 rgba(58, 123, 255, 0.55)) drop-shadow(0 18px 42px rgba(0, 0, 0, 0.6)); }
-  }
-
-  /* ---- 玻璃仪表盘：终端 + 自检清单（皮肤同款 pane 渐变 + 1px 冷蓝边 + 青色内沿）---- */
+  /* ---- 玻璃仪表盘：终端 + 自检清单（皮肤同款 pane）---- */
   #console {
-    margin-top: 14px;
-    width: 460px;
-    max-width: 86vw;
-    padding: 12px 16px 13px;
+    margin-top: clamp(20px, 11vh, 110px);
+    width: min(520px, 88vw);
+    padding: clamp(10px, 1.8vh, 15px) clamp(14px, 2.4vw, 20px) clamp(11px, 2vh, 16px);
     border-radius: 12px;
     border: 1px solid rgba(30, 58, 107, 0.73);
     background:
       radial-gradient(120% 80% at 82% 12%, rgba(57, 255, 209, 0.07) 0%, transparent 62%),
       radial-gradient(95% 70% at 8% 92%, rgba(58, 123, 255, 0.08) 0%, transparent 64%),
-      rgba(10, 16, 32, 0.72);
+      rgba(10, 16, 32, 0.74);
     box-shadow: 0 0 24px rgba(58, 123, 255, 0.14), inset 0 1px 0 rgba(57, 255, 209, 0.28);
     backdrop-filter: blur(8px);
     flex: none;
@@ -207,7 +106,7 @@
   /* 终端读数行（打字机 + 光标） */
   #terminal {
     font-family: "Cascadia Mono", "Consolas", monospace;
-    font-size: 13px;
+    font-size: clamp(11px, 1.55vh, 13px);
     line-height: 1.4;
     color: #E8F1FF;
     white-space: nowrap; overflow: hidden;
@@ -215,9 +114,9 @@
   #terminal .prompt { color: #3A7BFF; margin-right: 8px; font-weight: 700; }
   #caret {
     display: inline-block;
-    width: 8px; height: 15px;
+    width: 0.55em; height: 1em;
     margin-left: 3px;
-    vertical-align: -2px;
+    vertical-align: -0.15em;
     background: #39FFD1;
     animation: caretBlink 1s steps(1) infinite;
   }
@@ -231,11 +130,12 @@
   }
   /* 自检清单 */
   #checklist {
-    margin-top: 9px;
-    display: flex; flex-direction: column; gap: 4px;
+    margin-top: clamp(7px, 1.3vh, 11px);
+    display: flex; flex-direction: column;
+    gap: clamp(3px, 0.6vh, 5px);
     font-family: "Cascadia Mono", "Consolas", monospace;
-    font-size: 12px;
-    letter-spacing: 0.4px;
+    font-size: clamp(10px, 1.4vh, 12px);
+    letter-spacing: 0.3px;
   }
   .ck-row {
     display: flex; align-items: center; gap: 8px;
@@ -255,11 +155,18 @@
     100% { transform: translateX(0); }
   }
 
-  /* ---- 底部：进度条 + 耗时/版本 ---- */
-  #hudbar { margin-top: 14px; width: 100%; flex: none; text-align: center; }
+  /* ---- 底部：进度条 + 耗时/版本（吸底随高度自适应）---- */
+  #hudbar {
+    margin-top: auto;
+    padding-top: clamp(10px, 2vh, 18px);
+    width: 100%;
+    flex: none;
+    text-align: center;
+  }
   #progress {
     position: relative;
-    width: 240px; height: 2px;
+    width: min(240px, 60vw);
+    height: 2px;
     margin: 0 auto;
     border-radius: 2px;
     background: rgba(30, 58, 107, 0.55);
@@ -277,9 +184,9 @@
     to   { transform: translateX(380%); }
   }
   #metaline {
-    margin-top: 12px;
+    margin-top: clamp(8px, 1.4vh, 12px);
     font-family: "Cascadia Mono", "Consolas", monospace;
-    font-size: 11.5px;
+    font-size: clamp(10px, 1.35vh, 11.5px);
     color: rgba(143, 168, 204, 0.6);
     letter-spacing: 0.4px;
     font-variant-numeric: tabular-nums;
@@ -288,10 +195,13 @@
   #metaline .sep { margin: 0 8px; color: rgba(30, 58, 107, 0.9); }
   #elapsed { color: rgba(143, 168, 204, 0.4); }
 
-  /* gif 挂件：右下角，同主题挂件位（right 14 / bottom 12 / 圆角 14） */
+  /* gif 挂件：右下角，同主题挂件位 */
   #mascot {
-    position: fixed; right: 14px; bottom: 12px;
-    width: 110px; height: auto;
+    position: fixed;
+    right: clamp(8px, 1.2vw, 14px);
+    bottom: clamp(8px, 1.2vw, 12px);
+    width: clamp(72px, 12vh, 110px);
+    height: auto;
     border-radius: 14px;
     object-fit: cover;
     opacity: 0.92;
@@ -300,12 +210,13 @@
     z-index: 10;
   }
 
-  /* ---- 谢幕要素 ---- */
+  /* ---- 谢幕要素：冲击波 + 放射线 + 开工！---- */
   #shock {
     position: absolute;
-    left: 50%; top: 50%;
-    width: 50vh; height: 50vh;
-    margin: -25vh 0 0 -25vh;
+    left: 50%; top: 62%;
+    width: min(520px, 88vw); height: min(520px, 88vw);
+    margin-left: min(-260px, -44vw);
+    margin-top: min(-260px, -44vw);
     border: 3px solid rgba(57, 255, 209, 0.9);
     border-radius: 50%;
     opacity: 0;
@@ -315,8 +226,9 @@
   #rays {
     position: absolute;
     left: 50%; top: 50%;
-    width: 560px; height: 560px;
-    margin: -280px 0 0 -280px;
+    width: min(620px, 96vw); height: min(620px, 96vw);
+    margin-left: min(-310px, -48vw);
+    margin-top: min(-310px, -48vw);
     border-radius: 50%;
     background: repeating-conic-gradient(
       rgba(58, 123, 255, 0.1) 0deg 5deg,
@@ -329,13 +241,13 @@
   }
   #cheer {
     position: absolute;
-    left: 50%; top: 50%;
+    left: 50%; top: 46%;
     transform: translate(-50%, -50%) scale(0.2) rotate(-8deg);
-    font-size: 68px;
+    font-size: clamp(40px, 8.5vh, 68px);
     font-weight: 900;
-    letter-spacing: 5px;
+    letter-spacing: clamp(2px, 0.8vw, 5px);
     color: #ffffff;
-    -webkit-text-stroke: 3.5px #05070d;
+    -webkit-text-stroke: 3px #05070d;
     paint-order: stroke fill;
     text-shadow: 0 8px 34px rgba(0, 0, 0, 0.6), 0 0 34px rgba(58, 123, 255, 0.6);
     opacity: 0;
@@ -351,25 +263,26 @@
     pointer-events: none;
   }
 
-  /* ============ 谢幕编排（.out 由 __splashOut 触发）============ */
-  #stage.out #fish-rig { animation: windup 0.15s ease-in forwards; }
-  @keyframes windup {
-    to { transform: translateY(-14px) rotate(-9deg) scale(1.04); }
+  /* ============ 谢幕编排（.out 由 __splashOut 触发）============
+     ① 仪表盘锁定：边框转青 + 轻震（0~150ms）
+     ② 冲击波：从仪表盘中心展开（160ms 起）
+     ③ 放大欢呼：放射线 + 「开工！」弹入（340ms 起）
+     ④ 白闪 → 整页淡出（620ms 起，总 ~1.1s，main.js 超时上限 1200ms） */
+  #stage.out #console {
+    animation: consoleLock 0.5s ease-out forwards;
+    border-color: rgba(57, 255, 209, 0.85);
+    box-shadow: 0 0 34px rgba(57, 255, 209, 0.35), inset 0 1px 0 rgba(57, 255, 209, 0.6);
   }
-  #stage.out #fish { animation: slapFish 0.2s cubic-bezier(.2, .9, .3, 1) forwards 0.15s; }
-  @keyframes slapFish {
-    0% { transform: scale(1, 1); }
-    40% { transform: rotate(11deg) scale(1.1, 0.9); }
-    100% { transform: rotate(4deg) scale(1.02, 0.98); }
+  @keyframes consoleLock {
+    0% { transform: scale(1); }
+    35% { transform: scale(1.02); }
+    100% { transform: scale(1); }
   }
-  #stage.out #terminal { animation: termGlitch 0.3s steps(2) 3 0.15s, fadeOut 0.2s ease forwards 0.5s; }
   #stage.out #shock { animation: shockWave 0.55s cubic-bezier(.2, .7, .3, 1) forwards 0.16s; }
   @keyframes shockWave {
     0% { transform: scale(0.85); opacity: 0.95; border-width: 4px; }
-    100% { transform: scale(2.6); opacity: 0; border-width: 1px; }
+    100% { transform: scale(2.4); opacity: 0; border-width: 1px; }
   }
-  #stage.out #rig { animation: zoomRig 0.32s cubic-bezier(.34, 1.4, .64, 1) forwards 0.34s; }
-  @keyframes zoomRig { to { transform: scale(2.05); } }
   #stage.out #rays { animation: raysIn 0.5s ease-out forwards 0.34s; }
   @keyframes raysIn {
     0% { transform: rotate(0deg) scale(0.5); opacity: 0; }
@@ -388,19 +301,15 @@
     18% { opacity: 0.85; }
     100% { opacity: 0; }
   }
-  #stage.out #console, #stage.out #hudbar, #stage.out #radar,
-  #stage.out .sonar, #stage.out #glow, #stage.out #hud { animation: fadeOut 0.2s ease forwards 0.15s; }
+  #stage.out #hudbar { animation: fadeOut 0.2s ease forwards 0.15s; }
   @keyframes fadeOut { to { opacity: 0; } }
 
-  /* 减少动态偏好：静态候场（无数据雨、无上浮、无扫描），谢幕只做整页淡出 */
+  /* 减少动态偏好：静态候场（无数据雨），谢幕只做整页淡出 */
   @media (prefers-reduced-motion: reduce) {
-    #fish-rig, #glow, #radar, .sonar, #progress::after, #caret { animation: none !important; }
-    #rig { opacity: 1; animation: none !important; }
+    #caret, #progress::after { animation: none !important; }
     #fx { display: none; }
-    #stage.out #fish-rig, #stage.out #fish, #stage.out #rig, #stage.out #rays,
-    #stage.out #cheer, #stage.out #shock, #stage.out #flash, #stage.out #terminal,
-    #stage.out #console, #stage.out #hudbar, #stage.out #radar, #stage.out .sonar,
-    #stage.out #glow, #stage.out #hud, #stage.out #wordmark { animation: none !important; transition: none !important; }
+    #stage.out #console, #stage.out #shock, #stage.out #rays, #stage.out #cheer,
+    #stage.out #flash, #stage.out #hudbar, #stage.out #wordmark { animation: none !important; transition: none !important; }
     #cheer { opacity: 0; }
   }
 </style>
@@ -409,39 +318,13 @@
   <div id="stage">
     <div id="ambient"></div>
     <canvas id="fx"></canvas>
+    <video id="bgvid" src="../assets/whale-fantasy-loop.mp4" autoplay muted loop playsinline preload="auto"></video>
+    <div id="scrim"></div>
 
     <div id="scene">
-      <div id="wordmark">DeepSeek Harness</div>
-      <div id="rig">
-        <div id="glow"></div>
-        <div id="radar"></div>
-        <span class="sonar"></span>
-        <span class="sonar s2"></span>
-        <svg id="hud" viewBox="0 0 560 560" fill="none">
-          <g class="spin-a">
-            <circle cx="280" cy="280" r="262" stroke="rgba(30,58,107,0.85)"
-              stroke-width="1.5" stroke-dasharray="4 14" stroke-linecap="round" />
-            <circle cx="280" cy="280" r="236" stroke="rgba(30,58,107,0.5)"
-              stroke-width="5" stroke-dasharray="2 10" stroke-linecap="round" />
-          </g>
-          <g class="spin-b">
-            <circle cx="280" cy="280" r="248" stroke="rgba(58,123,255,0.55)"
-              stroke-width="2" stroke-dasharray="46 700" stroke-linecap="round" />
-          </g>
-          <circle cx="280" cy="280" r="222" stroke="rgba(30,58,107,0.45)" stroke-width="1" />
-          <!-- 四角括角 -->
-          <path d="M26 70 L26 26 L70 26" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
-          <path d="M490 26 L534 26 L534 70" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
-          <path d="M534 490 L534 534 L490 534" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
-          <path d="M70 534 L26 534 L26 490" stroke="rgba(58,123,255,0.5)" stroke-width="2" stroke-linecap="round" />
-        </svg>
-        <div id="fish-rig">
-          <div id="scanline"></div>
-          <img id="fish" src="../assets/icon_app.png" alt="" draggable="false" />
-        </div>
-        <div id="shock"></div>
-        <div id="rays"></div>
-        <div id="cheer">开工！</div>
+      <div id="brand">
+        <img id="badge" src="../assets/icon_app.png" alt="" draggable="false" />
+        <div id="wordmark">DeepSeek Harness</div>
       </div>
       <div id="console">
         <div id="terminal"><span class="prompt">&gt;</span><span id="ttext">正在启动服务 …</span><span id="caret"></span></div>
@@ -460,6 +343,9 @@
       </div>
     </div>
 
+    <div id="shock"></div>
+    <div id="rays"></div>
+    <div id="cheer">开工！</div>
     <div id="flash"></div>
     <img id="mascot" alt="" draggable="false" hidden />
   </div>
@@ -535,19 +421,14 @@
     }, 26);
   }
 
-  /* ---- 实体化：扫描线掠过 + RGB 分离 + 终端故障 ---- */
-  const fishRig = document.getElementById('fish-rig');
+  /* ---- 实体化：终端故障闪烁 ---- */
   let matTimer = null;
   function materialize() {
-    fishRig.classList.remove('materialize');
-    void fishRig.offsetWidth;
-    fishRig.classList.add('materialize');
-    clearTimeout(matTimer);
-    matTimer = setTimeout(function () { fishRig.classList.remove('materialize'); }, 900);
     terminalEl.classList.remove('glitch');
     void terminalEl.offsetWidth;
     terminalEl.classList.add('glitch');
-    setTimeout(function () { terminalEl.classList.remove('glitch'); }, 900);
+    clearTimeout(matTimer);
+    matTimer = setTimeout(function () { terminalEl.classList.remove('glitch'); }, 900);
   }
 
   window.__setStatus = function (text) {
@@ -563,7 +444,7 @@
     }
   };
 
-  /* ---- 数据雨（皮肤的灵魂元素：青色数据雨，canvas 自绘）---- */
+  /* ---- 数据雨（兜底：视频不可见时仍有的氛围层）---- */
   const canvas = document.getElementById('fx');
   const ctx = canvas.getContext('2d');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -571,22 +452,10 @@
   let fxRaf = null;
   let lastT = 0;
   const RAIN_COLORS = [
-    'rgba(30, 58, 107, ',    // 冷蓝（主）
-    'rgba(58, 123, 255, ',   // 电光蓝
-    'rgba(57, 255, 209, ',   // 状态青（少量）
+    'rgba(30, 58, 107, ',
+    'rgba(58, 123, 255, ',
+    'rgba(57, 255, 209, ',
   ];
-  function fxResize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = innerWidth * dpr;
-    canvas.height = innerHeight * dpr;
-    canvas.style.width = innerWidth + 'px';
-    canvas.style.height = innerHeight + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const cols = Math.ceil(innerWidth / 16);
-    drops = Array.from({ length: cols }, function (_, i) {
-      return newDrop(i * 16 + 4, true);
-    });
-  }
   function newDrop(x, anywhere) {
     const cyan = Math.random() < 0.12;
     return {
@@ -598,6 +467,18 @@
       color: cyan ? RAIN_COLORS[2] : (Math.random() < 0.4 ? RAIN_COLORS[1] : RAIN_COLORS[0]),
       head: cyan || Math.random() < 0.25,
     };
+  }
+  function fxResize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = innerWidth * dpr;
+    canvas.height = innerHeight * dpr;
+    canvas.style.width = innerWidth + 'px';
+    canvas.style.height = innerHeight + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cols = Math.ceil(innerWidth / 16);
+    drops = Array.from({ length: cols }, function (_, i) {
+      return newDrop(i * 16 + 4, true);
+    });
   }
   function fxTick(t) {
     const dt = lastT ? Math.min((t - lastT) / 1000, 0.05) : 0.016;
@@ -643,14 +524,16 @@
   };
   startTimer();
 
-  // 主进程在服务就绪、即将加载界面时调用：播放谢幕编排（蓄力→拍走→放大欢呼→白闪）
-  // 约 1.1s 后整页淡出。时序与 main.js 的 withTimeout(splashOut(), 1200) 串行等待
-  // 配套：1.1s 已贴近上限，不得再加长
+  // 主进程在服务就绪、即将加载界面时调用：谢幕编排（仪表盘锁定 → 冲击波 →
+  // 放射线 + 「开工！」→ 白闪 → 淡出），约 1.1s。时序与 main.js 的
+  // withTimeout(splashOut(), 1200) 串行等待配套，不得再加长
   window.__splashOut = function () {
     return new Promise(function (resolve) {
       clearInterval(timer);
       clearInterval(typeTimer);
       if (fxRaf) cancelAnimationFrame(fxRaf);
+      const v = document.getElementById('bgvid');
+      if (v) { try { v.pause(); } catch (e) {} }
       const stage = document.getElementById('stage');
       stage.classList.remove('out');
       void stage.offsetWidth;
@@ -666,6 +549,8 @@
   window.__splashIn = function () {
     const stage = document.getElementById('stage');
     stage.classList.remove('out', 'leaving');
+    const v = document.getElementById('bgvid');
+    if (v) { try { v.play(); } catch (e) {} }
     startTimer();
   };
 </script>
