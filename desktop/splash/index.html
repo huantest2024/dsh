@@ -43,13 +43,14 @@
     object-position: 50% 42%;
     pointer-events: none;
   }
-  /* 压暗：整体轻罩 + 左侧偏重（HUD 区可读），角色保持清晰 */
+  /* 压暗：只做整体轻罩 + 底部稍重（HUD 可读），不再左侧整片压暗——
+     左侧压暗会形成一道可见的"黑楔子"，把画面切成两半；HUD 文字的可读性
+     改由 #hud::before 的边缘柔光解决（无边界、融进画面） */
   #scrim {
     position: absolute; inset: 0;
     background:
-      radial-gradient(78% 66% at 62% 34%, rgba(5, 7, 13, 0.12) 0%, rgba(5, 7, 13, 0.46) 100%),
-      linear-gradient(90deg, rgba(5, 7, 13, 0.72) 0%, rgba(5, 7, 13, 0.28) 34%, transparent 58%),
-      linear-gradient(180deg, rgba(5, 7, 13, 0.46) 0%, transparent 18%, transparent 52%, rgba(5, 7, 13, 0.8) 100%);
+      radial-gradient(82% 70% at 60% 36%, rgba(5, 7, 13, 0.10) 0%, rgba(5, 7, 13, 0.42) 100%),
+      linear-gradient(180deg, rgba(5, 7, 13, 0.4) 0%, transparent 16%, transparent 56%, rgba(5, 7, 13, 0.6) 100%);
   }
 
   /* ---- 左上：品牌锁定（横排小徽章 + 字标）---- */
@@ -88,8 +89,21 @@
     position: absolute;
     left: clamp(18px, 3.2vw, 44px);
     bottom: clamp(18px, 3.4vh, 40px);
-    width: min(380px, 62vw);
+    width: min(340px, 56vw);
     user-select: none;
+  }
+  /* HUD 背后的柔光：一团边缘全透明的椭圆暗晕，只托文字可读性、
+     不构成可见边界（替代原来的左侧整片压暗） */
+  #hud::before {
+    content: "";
+    position: absolute;
+    left: clamp(-40px, -6vw, -20px);
+    right: clamp(-70px, -10vw, -30px);
+    top: clamp(-30px, -5vh, -14px);
+    bottom: clamp(-26px, -4vh, -12px);
+    background: radial-gradient(58% 62% at 34% 58%, rgba(4, 7, 14, 0.6) 0%, rgba(4, 7, 14, 0.32) 46%, transparent 78%);
+    pointer-events: none;
+    z-index: -1;
   }
   #bootlog {
     display: flex; flex-direction: column;
@@ -102,7 +116,7 @@
   .log-row {
     display: flex; align-items: baseline; gap: 8px;
     color: rgba(143, 168, 204, 0.5);
-    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
     /* 一行一行长出来的入场：新行自左缘淡入 */
     animation: logIn 0.32s ease-out 1;
   }

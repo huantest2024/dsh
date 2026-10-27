@@ -632,6 +632,11 @@ function injectionScript(version) {
     if (window.dshDesktop && !window.__dshThemeObs) {
       window.__dshThemeObs = true;
       var send = function () {
+        /* 启动页等本地页面（file://）不参与主题上报：它没有 data-ds-dark-theme
+           标记，误报浅色会把自绘顶栏翻回浅色、和深海片头割裂；
+           顶栏在片头期间由 createWindow 主动推深色，主界面（http:）就绪后
+           再由这里的真实上报接管 */
+        if (location.protocol !== 'http:' && location.protocol !== 'https:') return
         window.dshDesktop.reportTheme(document.body.hasAttribute('data-ds-dark-theme'));
       };
       new MutationObserver(send).observe(document.body, {
