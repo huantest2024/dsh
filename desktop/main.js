@@ -2005,9 +2005,13 @@ async function handleShellCheckUpdate() {
     }
     const asset = (rel.assets || []).find(a => /\.exe$/i.test(a.name || '') && /setup/i.test(a.name))
     if (!asset) return { ok: false, error: '最新 Release 未找到 Windows 安装包（Setup.exe）资产' }
+    /* 下载地址用 API 资产通道（asset.url + Accept: octet-stream）而不是
+       browser_download_url：两者最终都跳 release-assets，但首跳不同——
+       api.github.com 在本机（公司网络）稳定可达，github.com 时通时断。
+       asset.url 形如 https://api.github.com/repos/<owner>/<repo>/releases/assets/<id> */
     shellUpdateCtx = {
       current, latest, notes: rel.body || '',
-      url: asset.browser_download_url, size: asset.size || 0,
+      url: asset.url || asset.browser_download_url, size: asset.size || 0,
       path: null, percent: 0, downloading: false,
     }
     log(`壳更新检测：当前 ${current} → 最新 ${latest}（${Math.round(asset.size / 1048576)}MB）`)
@@ -2024,36 +2028,48 @@ function handleShellDownload() {
   shellUpdateCtx.downloading = true
   const dest = path.join(os.tmpdir(), `dsh-desktop-setup-${shellUpdateCtx.latest}.exe`)
   sendShellEvent({ type: 'download-start', latest: shellUpdateCtx.latest, total: shellUpdateCtx.size })
-  fetch(shellUpdateCtx.url, { headers: { 'User-Agent': 'dsh-desktop-updater' } }).then(res => {
-    if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}`)
-    const total = parseInt(res.headers.get('content-length') || '0', 10) || shellUpdateCtx.size || 0
-    const out = fs.createWriteStream(dest)
-    let got = 0
-    res.body.on('data', chunk => {
-      got += chunk.length
-      if (total) {
-        const pct = Math.floor((got / total) * 100)
-        if (pct !== shellUpdateCtx.percent) {
-          shellUpdateCtx.percent = pct
-          sendShellEvent({ type: 'download-progress', percent: pct, got, total })
+  /* 注意：原生 fetch（Electron 33 / Node 24，undici）的 res.body 是 WHATWG
+     ReadableStream，没有 .on()/.pipe()——那套是 node-fetch v2 的 Node 流 API，
+     混用会直接抛 "res.body.on is not a function"（壳更新下载一直失败的根因）。
+     这里用 for await 遍历 web stream，逐块落盘并推进度。 */
+  ;(async () => {
+    try {
+      const res = await fetch(shellUpdateCtx.url, {
+        headers: { 'User-Agent': 'dsh-desktop-updater', Accept: 'application/octet-stream' },
+        redirect: 'follow',
+      })
+      if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}`)
+      if (!res.body) throw new Error('下载响应无内容')
+      const total = parseInt(res.headers.get('content-length') || '0', 10) || shellUpdateCtx.size || 0
+      const out = fs.createWriteStream(dest)
+      let got = 0
+      for await (const chunk of res.body) {
+        const buf = Buffer.from(chunk.buffer ? chunk.buffer : chunk, chunk.byteOffset || 0, chunk.byteLength || chunk.length)
+        if (!out.write(buf)) {
+          await new Promise(r => out.once('drain', r))
+        }
+        got += buf.length
+        if (total) {
+          const pct = Math.floor((got / total) * 100)
+          if (pct !== shellUpdateCtx.percent) {
+            shellUpdateCtx.percent = pct
+            sendShellEvent({ type: 'download-progress', percent: pct, got, total })
+          }
         }
       }
-    })
-    res.body.pipe(out)
-    out.on('finish', () => {
+      await new Promise((resolve, reject) => {
+        out.end((err) => (err ? reject(err) : resolve()))
+      })
       shellUpdateCtx.path = dest
       shellUpdateCtx.downloading = false
-      log(`壳更新安装包下载完成：${dest}`)
+      log(`壳更新安装包下载完成：${dest}（${Math.round(got / 1048576)}MB）`)
       sendShellEvent({ type: 'download-done', path: dest })
-    })
-    out.on('error', err => {
+    } catch (err) {
       shellUpdateCtx.downloading = false
+      log(`壳更新安装包下载失败：${err.message}`)
       sendShellEvent({ type: 'download-failed', error: err.message })
-    })
-  }).catch(err => {
-    shellUpdateCtx.downloading = false
-    sendShellEvent({ type: 'download-failed', error: err.message })
-  })
+    }
+  })()
   return { ok: true }
 }
 
