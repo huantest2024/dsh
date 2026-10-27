@@ -1455,18 +1455,37 @@ window.__ModuleLoader__.load({
     /* ---------------- 渲染编排 ---------------- */
 
     function render(root, settings, onChange, state) {
-      // 清旧（含动态壁纸视频层/遮罩层；上一轮的 objectURL 一并释放防泄漏）
-      for (var id of ['dsh-anime-theme-style', 'dsh-anime-mascot', 'dsh-anime-panel', 'dsh-anime-particles', 'dsh-anime-wallpaper-video', 'dsh-anime-wallpaper-mask']) {
+      /* 清旧：mascot / panel / particles 每次重建；style 与壁纸层（视频+遮罩）复用——
+         开/关主题面板也会走全量 render，若把 style 和视频壁纸一起销毁重建：
+         ① 视频从头缓冲（包内视频是 8.8MB data URI），背景明显抖一下；
+         ② body 背景图重新解码也可能闪。改为「同值只更新 textContent / 保留节点」。 */
+      for (var id of ['dsh-anime-mascot', 'dsh-anime-panel', 'dsh-anime-particles']) {
         var old = document.getElementById(id)
         if (old) old.remove()
       }
-      if (state.wallUrl) { URL.revokeObjectURL(state.wallUrl); state.wallUrl = null }
       if (stopParticles) { stopParticles(); stopParticles = null }
 
-      var style = document.createElement('style')
-      style.id = 'dsh-anime-theme-style'
+      /* 壁纸层复用判定：wallpaper 设置没变就保留现有视频/遮罩节点 */
+      var isVideoWall = typeof settings.wallpaper === 'string' &&
+        (settings.wallpaper.indexOf('video:') === 0 || settings.wallpaper.indexOf('pkgvideo:') === 0)
+      var wallChanged = settings.wallpaper !== state.wallKey
+      if (wallChanged) {
+        for (var wid of ['dsh-anime-wallpaper-video', 'dsh-anime-wallpaper-mask']) {
+          var wold = document.getElementById(wid)
+          if (wold) wold.remove()
+        }
+        if (state.wallUrl) { URL.revokeObjectURL(state.wallUrl); state.wallUrl = null }
+        state.wallKey = settings.wallpaper
+      }
+
+      /* style 元素：首次创建，之后只更新 textContent（不销毁重建，避免背景闪） */
+      var style = document.getElementById('dsh-anime-theme-style')
+      if (!style) {
+        style = document.createElement('style')
+        style.id = 'dsh-anime-theme-style'
+        document.head.appendChild(style)
+      }
       style.textContent = buildCss(settings)
-      document.head.appendChild(style)
 
       if (settings.enabled) {
         var mascotUri = state.pickedMascot || (state.pickedMascot = pickMascotUri(settings))
@@ -1486,7 +1505,7 @@ window.__ModuleLoader__.load({
            过期渲染（视频节点已被新一轮替换）的 URL 立即释放 */
         var isVideoWallR = typeof settings.wallpaper === 'string' &&
           (settings.wallpaper.indexOf('video:') === 0 || settings.wallpaper.indexOf('pkgvideo:') === 0)
-        if (isVideoWallR) {
+        if (isVideoWallR && (wallChanged || !document.getElementById('dsh-anime-wallpaper-video'))) {
           var isPkg = settings.wallpaper.indexOf('pkgvideo:') === 0
           var pkgKey = isPkg ? settings.wallpaper.slice(9) : null
           var vid = document.createElement('video')

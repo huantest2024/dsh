@@ -99,6 +99,43 @@ function writeSettings(patch) {
   }
   return next
 }
+/* 窗口大小/位置记忆：从 desktop-settings.json 读回上次的 bounds，
+   并夹到当前屏幕工作区（换过显示器/分辨率后不允许把窗口放到屏幕外）。
+   没有记录或记录非法时返回 null，由 createWindow 用默认值。 */
+function loadWindowBounds() {
+  const b = readSettings().windowBounds
+  if (!b || typeof b.width !== 'number' || typeof b.height !== 'number') return null
+  const displays = screen.getAllDisplays()
+  const inside = displays.find(d =>
+    typeof b.x === 'number' && typeof b.y === 'number' &&
+    b.x >= d.workArea.x && b.x < d.workArea.x + d.workArea.width &&
+    b.y >= d.workArea.y && b.y < d.workArea.y + d.workArea.height)
+  const target = inside || screen.getPrimaryDisplay()
+  const wa = target.workArea
+  const width = Math.round(Math.min(Math.max(b.width, 960), wa.width))
+  const height = Math.round(Math.min(Math.max(b.height, 620 + BAR_HEIGHT), wa.height))
+  let x = typeof b.x === 'number' ? Math.round(b.x) : wa.x + Math.round((wa.width - width) / 2)
+  let y = typeof b.y === 'number' ? Math.round(b.y) : wa.y + Math.round((wa.height - height) / 2)
+  x = Math.min(Math.max(x, wa.x), Math.max(wa.x, wa.x + wa.width - width))
+  y = Math.min(Math.max(y, wa.y), Math.max(wa.y, wa.y + wa.height - height))
+  return { width, height, x, y, maximized: !!b.maximized }
+}
+
+/* 防抖保存窗口 bounds（拖动/缩放/最大化状态变化时；400ms 合并） */
+let windowBoundsTimer = null
+function saveWindowBounds(immediate) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const flush = function () {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const maximized = mainWindow.isMaximized()
+    const b = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+    writeSettings({ windowBounds: { x: b.x, y: b.y, width: b.width, height: b.height, maximized } })
+  }
+  clearTimeout(windowBoundsTimer)
+  if (immediate) flush()
+  else windowBoundsTimer = setTimeout(flush, 400)
+}
+
 const PREFERRED_PORT = Number.parseInt(process.env.DSH_PORT || '3188', 10)
 // 应用内更新完成后的新版预热端口：此时旧版服务仍在线（3188），预热必须用备用端口；
 // 登录预热（Run 键）仍用 PREFERRED_PORT（那时 3188 空闲）
@@ -727,9 +764,12 @@ function injectIntoPage(win) {
 function createWindow(splashGifPath) {
   nativeTheme.themeSource = 'dark'
 
+  const winBounds = loadWindowBounds()
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 920 + BAR_HEIGHT,
+    width: winBounds ? winBounds.width : 1440,
+    height: winBounds ? winBounds.height : 920 + BAR_HEIGHT,
+    x: winBounds ? winBounds.x : undefined,
+    y: winBounds ? winBounds.y : undefined,
     minWidth: 960,
     minHeight: 620 + BAR_HEIGHT,
     show: false,
@@ -769,9 +809,13 @@ function createWindow(splashGifPath) {
   // 从不导航的目标在 CDP 上 Runtime 无响应，会让 playwright connectOverCDP 等自动化
   // 工具 attach 时整体卡死（实测）
   mainWindow.webContents.loadURL('about:blank')
-  mainWindow.on('resize', layoutViews)
-  mainWindow.on('maximize', () => syncBarMaximized(true))
-  mainWindow.on('unmaximize', () => syncBarMaximized(false))
+  mainWindow.on('resize', () => { layoutViews(); saveWindowBounds() })
+  mainWindow.on('move', () => saveWindowBounds())
+  mainWindow.on('maximize', () => { syncBarMaximized(true); saveWindowBounds(true) })
+  mainWindow.on('unmaximize', () => { syncBarMaximized(false); saveWindowBounds(true) })
+  mainWindow.on('close', () => saveWindowBounds(true))
+  // 恢复上次的最大化状态（在 show 之前设置，避免先还原再放大的闪烁）
+  if (winBounds && winBounds.maximized) mainWindow.maximize()
   barView.webContents.loadFile(path.join(APP_ROOT, 'bar.html'))
   // 顶栏加载完成即推一次版本徽标状态（初始渲染）
   barView.webContents.once('did-finish-load', () => {
