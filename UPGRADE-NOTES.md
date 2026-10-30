@@ -3,7 +3,7 @@
 > 核心结论：**本封装不修改上游 dsh 的任何文件**。dsh 以官方 npm 包（`@deepseek-ai/dsh`）原样运行，
 > 桌面壳通过公开 CLI 契约（`dsh web` 命令）交互，主题插件通过官方插件机制接入用户 profile——
 > 三层解耦，上游更新 = 换一个 npm 包版本，封装层完全旁路。
-> 以下是对着 `deepseek-harness/`（0.1.1-rc.2 源码克隆）逐项验证过的依赖清单与失效预案。
+> 以下是对着 `deepseek-harness/`（**0.2.2-alpha.2** 源码克隆）逐项验证过的依赖清单与失效预案。
 
 ## 一、改动清单
 
@@ -33,22 +33,26 @@
 
 | 位置 | 内容 |
 |------|------|
-| `~/.dsh/profiles/web/package.json` | `dsh.profile.bundles` 追加了 `dsh-anime-theme` |
-| `~/.dsh/profiles/node_modules/dsh-anime-theme/` | 插件部署副本 |
-| `%APPDATA%\DeepSeek Harness\desktop-settings.json` | 壳设置（关闭行为等） |
-| 桌面快捷方式 `DeepSeek Harness.lnk` | 指向 win-unpacked 或安装版 |
+| `~/.dsh/profiles/desktop/package.json` | `dsh.profile.bundles` 追加了 `dsh-anime-theme`、`dshmarket` 等壳内插件 |
+| `~/.dsh/profiles/desktop/node_modules/` | 插件部署副本（pnpm 管理） |
+| `%APPDATA%\DSH Desktop\desktop-settings.json` | 壳设置（关闭行为等） |
+| 桌面快捷方式 `DSH Desktop.lnk` | 指向 `%LOCALAPPDATA%\Programs\DSH\DSH Desktop.exe` |
 
 ### 4. 已删除（被本方案取代）
 
 `dsh-desktop.ps1`、`setup-shortcut.ps1`、旧 `package.json`（Chrome App Mode 方案）。
 
-## 二、依赖锚点比对表（已对照 0.1.1-rc.2 源码逐一验证）
+## 二、依赖锚点比对表（已对照 **0.2.2-alpha.2** 源码逐一验证）
 
 稳定性评级：**高** = 官方文档化机制/语义化命名；**中** = 内部实现细节，大版本重构才可能变。
 
+> 复核结论（相对 0.1.1-rc.2 基线）：12 项锚点**全部仍然成立**，壳与主题插件无需改动。
+> 唯一变化是锚点 1 的命令行解析从 `apps/cli/src/args.ts` 迁到
+> `packages/bundle/web-app/src/startup.ts`（命令与 flag 语义不变）。
+
 | # | 依赖锚点 | 使用方 | 上游源码位置 | 稳定性 | 失效表现 |
 |---|---------|--------|-------------|--------|---------|
-| 1 | `dsh web --no-open --port N` | 壳启动服务 | `apps/cli/src/args.ts`、`packages/bundle/web-app` | 高（文档化公开命令） | 壳报错弹窗，服务可手动起 |
+| 1 | `dsh web --no-open --port N` | 壳启动服务 | `packages/bundle/web-app/src/startup.ts`（0.2.x 起；原 `apps/cli/src/args.ts`） | 高（文档化公开命令） | 壳报错弹窗，服务可手动起 |
 | 2 | `lib/bin.js` 包入口 + npx 缓存/全局/profiles 定位 | 壳 CLI 解析 | `@deepseek-ai/dsh` package.json `bin` | 高 | 回退 npx 兜底 |
 | 3 | `data-ds-dark-theme` 属性 | 壳深浅联动、插件 CSS 作用域 | `ui-theme/src/boot-theme.ts`、`theme-presenter.ts` | 高（官方主题机制） | 标题栏配色不切换、主题不跟深浅 |
 | 4 | `__ModuleLoader__.load({id,factory})` | 插件加载 | `client-modules/src/index.ts` | 中高（0.1.x 稳定） | 主题整体失效，**dsh 本身正常** |
@@ -63,12 +67,13 @@
 
 ## 三、更新场景与影响推演
 
-### 场景 A：dsh 小版本更新（0.1.1-rc.x → 0.1.x / 0.1.2）
+### 场景 A：dsh 小版本更新（0.2.x 之内，如 rc.5 → 0.2.2-alpha.2）
 
 **预期影响：无。** 上表高稳定项不会变；壳与插件无需任何改动。
 操作：点版本徽标更新，或 `npx -y @deepseek-ai/dsh@latest`，重启即可。
+（已在 0.2.1-rc.5 → 0.2.2-alpha.2 实际验证：12 项锚点全部仍成立。）
 
-### 场景 B：dsh 大版本更新（0.2 / 1.0）
+### 场景 B：dsh 大版本更新（0.3 / 1.0）
 
 可能变动的按风险排序：#5/#4/#6（插件协议）> #7/#8（token 与类名）> #3。
 **关键保底设计**：任何一项失效都只影响"主题外观"，dsh 本体与桌面壳完全正常；
