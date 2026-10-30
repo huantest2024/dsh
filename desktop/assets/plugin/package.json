@@ -1,6 +1,6 @@
 {
   "name": "dsh-anime-theme",
-  "description": "二次元主题插件：全屏动漫壁纸 + 半透明玻璃面板 + 五套全局配色主题 + 动态壁纸 + 粒子效果 + 右下角随机动图挂件（间谍过家家 / Lycoris Recoil）",
+  "description": "二次元主题插件：全屏动漫壁纸 + 半透明玻璃面板 + 六套全局配色主题 + 动态壁纸 + 粒子效果 + 右下角随机动图挂件（间谍过家家 / Lycoris Recoil）",
   "version": "1.1.0",
   "license": "MIT",
   "type": "module",
