@@ -13,6 +13,7 @@
 
 const { app, BrowserWindow, WebContentsView, Tray, Menu, dialog, ipcMain, nativeTheme, shell, screen } = require('electron')
 const { spawn, execFile } = require('child_process')
+const crypto = require('crypto')
 const fs = require('fs')
 const http = require('http')
 const https = require('https')
@@ -2008,10 +2009,12 @@ async function handleShellCheckUpdate() {
     /* 下载地址用 API 资产通道（asset.url + Accept: octet-stream）而不是
        browser_download_url：两者最终都跳 release-assets，但首跳不同——
        api.github.com 在本机（公司网络）稳定可达，github.com 时通时断。
-       asset.url 形如 https://api.github.com/repos/<owner>/<repo>/releases/assets/<id> */
+       asset.url 形如 https://api.github.com/repos/<owner>/<repo>/releases/assets/<id>
+       digest 形如 "sha256:<hex>"，下载完成后据此校验完整性。 */
     shellUpdateCtx = {
       current, latest, notes: rel.body || '',
       url: asset.url || asset.browser_download_url, size: asset.size || 0,
+      sha256: String(asset.digest || '').replace(/^sha256:/i, '') || null,
       path: null, percent: 0, downloading: false,
     }
     log(`壳更新检测：当前 ${current} → 最新 ${latest}（${Math.round(asset.size / 1048576)}MB）`)
@@ -2031,38 +2034,109 @@ function handleShellDownload() {
   /* 注意：原生 fetch（Electron 33 / Node 24，undici）的 res.body 是 WHATWG
      ReadableStream，没有 .on()/.pipe()——那套是 node-fetch v2 的 Node 流 API，
      混用会直接抛 "res.body.on is not a function"（壳更新下载一直失败的根因）。
-     这里用 for await 遍历 web stream，逐块落盘并推进度。 */
-  ;(async () => {
-    try {
-      const res = await fetch(shellUpdateCtx.url, {
-        headers: { 'User-Agent': 'dsh-desktop-updater', Accept: 'application/octet-stream' },
+     这里用 for await 遍历 web stream，逐块落盘并推进度。
+   *
+   * 真实网络下 GitHub release-assets 会在中途掐断连接（实测 108MB 包在 26.5MB
+   * 处 "end of response with 83467221 bytes missing"），一次失败的整包重来几乎
+   * 不可能成功。Release 资产支持 HTTP Range（206），因此这里做：
+   *   - 断点续传：已有 .part 文件时用 Range 从断点继续，最多续 8 次；
+   *   - 完整性校验：下载完成后按 GitHub 资产 digest 的 sha256 校验，不匹配即重下。 */
+  const part = `${dest}.part`
+  const MAX_RESUME = 8
+  // 断线级重试：公司网络下 GitHub 偶发 "fetch failed"，同一轮内重试连接不消耗续传预算
+  const fetchWithRetry = async (url, options, tries = 3) => {
+    let lastErr = null
+    for (let i = 0; i < tries; i++) {
+      try {
+        return await fetch(url, options)
+      } catch (err) {
+        lastErr = err
+        if (i < tries - 1) await new Promise(r => setTimeout(r, 1500 * (i + 1)))
+      }
+    }
+    throw new Error(`连接 GitHub 失败：${lastErr ? lastErr.message : '未知错误'}`)
+  }
+  const download = async () => {
+    let got = fs.existsSync(part) ? fs.statSync(part).size : 0
+    if (shellUpdateCtx.size && got > shellUpdateCtx.size) { got = 0; fs.rmSync(part, { force: true }) }
+    for (let attempt = 0; attempt <= MAX_RESUME; attempt++) {
+      const res = await fetchWithRetry(shellUpdateCtx.url, {
+        headers: {
+          'User-Agent': 'dsh-desktop-updater',
+          Accept: 'application/octet-stream',
+          ...(got > 0 ? { Range: `bytes=${got}-` } : {}),
+        },
         redirect: 'follow',
       })
+      // 续传请求未被接受（服务器返回整包 200）→ 从头写，避免尾部拼接错位
+      if (got > 0 && res.status !== 206) {
+        log(`续传未生效（HTTP ${res.status}），改为整包重下`)
+        got = 0
+        fs.rmSync(part, { force: true })
+      }
       if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}`)
       if (!res.body) throw new Error('下载响应无内容')
-      const total = parseInt(res.headers.get('content-length') || '0', 10) || shellUpdateCtx.size || 0
-      const out = fs.createWriteStream(dest)
-      let got = 0
-      for await (const chunk of res.body) {
-        const buf = Buffer.from(chunk.buffer ? chunk.buffer : chunk, chunk.byteOffset || 0, chunk.byteLength || chunk.length)
-        if (!out.write(buf)) {
-          await new Promise(r => out.once('drain', r))
-        }
-        got += buf.length
-        if (total) {
-          const pct = Math.floor((got / total) * 100)
-          if (pct !== shellUpdateCtx.percent) {
-            shellUpdateCtx.percent = pct
-            sendShellEvent({ type: 'download-progress', percent: pct, got, total })
+      const total = shellUpdateCtx.size
+        || (parseInt(res.headers.get('content-length') || '0', 10) + got)
+      const out = fs.createWriteStream(part, { flags: got > 0 ? 'a' : 'w' })
+      /* 中途断流时 undici 的 for-await 会抛 TypeError: terminated
+         （cause: other side closed）——这正是需要续传的情形，不能当致命错误。
+         只有写盘失败（ENOSPC/EACCES 等）才真正停下。 */
+      let streamError = null
+      try {
+        for await (const chunk of res.body) {
+          const buf = Buffer.from(chunk.buffer ? chunk.buffer : chunk, chunk.byteOffset || 0, chunk.byteLength || chunk.length)
+          if (!out.write(buf)) {
+            await new Promise(r => out.once('drain', r))
+          }
+          got += buf.length
+          if (total) {
+            const pct = Math.min(99, Math.floor((got / total) * 100))
+            if (pct !== shellUpdateCtx.percent) {
+              shellUpdateCtx.percent = pct
+              sendShellEvent({ type: 'download-progress', percent: pct, got, total })
+            }
           }
         }
+      } catch (err) {
+        streamError = err
+      } finally {
+        await new Promise((resolve) => { out.end(() => resolve()) })
       }
-      await new Promise((resolve, reject) => {
-        out.end((err) => (err ? reject(err) : resolve()))
-      })
+      if (streamError) {
+        // 写盘错误不可续传；网络断流可续传
+        const code = streamError.code || (streamError.cause && streamError.cause.code)
+        if (code === 'ENOSPC' || code === 'EACCES' || code === 'EPERM') throw streamError
+        log(`下载流中断（${streamError.message}），已收到 ${Math.round(got / 1048576)}MB，尝试续传`)
+      }
+      // 长度到位才算下载完整；不够则继续下一轮续传
+      if (!total || got >= total) break
+      if (attempt === MAX_RESUME) throw new Error(`续传 ${MAX_RESUME} 次仍未完成（${Math.round(got / 1048576)}MB / ${Math.round(total / 1048576)}MB）`)
+      log(`下载中断于 ${Math.round(got / 1048576)}MB/${Math.round(total / 1048576)}MB，第 ${attempt + 1} 次续传`)
+      await new Promise(r => setTimeout(r, 1000))
+    }
+    const size = fs.statSync(part).size
+    if (shellUpdateCtx.size && size !== shellUpdateCtx.size) {
+      throw new Error(`下载不完整（${Math.round(size / 1048576)}MB / ${Math.round(shellUpdateCtx.size / 1048576)}MB）`)
+    }
+    // 完整性校验：GitHub 资产 digest 形如 sha256:<hex>，缺失时退回长度校验
+    if (shellUpdateCtx.sha256) {
+      const actual = await sha256OfFile(part)
+      if (actual !== shellUpdateCtx.sha256.toLowerCase()) {
+        fs.rmSync(part, { force: true })
+        throw new Error(`安装包校验失败（sha256 不匹配）：期望 ${shellUpdateCtx.sha256}，实际 ${actual}`)
+      }
+      log(`壳更新安装包 sha256 校验通过（${actual.slice(0, 12)}…）`)
+    }
+    fs.renameSync(part, dest)
+    return size
+  }
+  ;(async () => {
+    try {
+      const size = await download()
       shellUpdateCtx.path = dest
       shellUpdateCtx.downloading = false
-      log(`壳更新安装包下载完成：${dest}（${Math.round(got / 1048576)}MB）`)
+      log(`壳更新安装包下载完成：${dest}（${Math.round(size / 1048576)}MB）`)
       sendShellEvent({ type: 'download-done', path: dest })
     } catch (err) {
       shellUpdateCtx.downloading = false
@@ -2073,12 +2147,64 @@ function handleShellDownload() {
   return { ok: true }
 }
 
+/** 计算文件 sha256（流式，避免把 100MB+ 安装包读进内存）。 */
+function sha256OfFile(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256')
+    fs.createReadStream(file)
+      .on('data', (b) => hash.update(b))
+      .on('end', () => resolve(hash.digest('hex')))
+      .on('error', reject)
+  })
+}
+
 function handleShellInstall() {
   if (!shellUpdateCtx || !shellUpdateCtx.path) return { ok: false, error: '安装包未就绪' }
   const installer = shellUpdateCtx.path
   log(`启动壳更新安装器：${installer}`)
+  /* NSIS 的 /S 静默安装会跳过图形安装流程的完成页，而 electron-builder 的
+     StartApp（安装完成后拉起应用）只挂在完成页上——所以 /S 装完不会自动启动新版本，
+     用户会以为「点安装没反应」。这里在启动安装器后自己拉起新版：
+     安装器内部 customInit 会 taskkill 本进程，故不能依赖本进程存活，
+     改由一个分离的 cmd 按 PID 轮询安装器退出后，再 start 主程序（含 --updated）。
+     安装目录取当前 exe 所在目录——/S 默认装到同一位置，升级不换目录。 */
+  const installDir = path.dirname(process.execPath)
+  const exeName = path.basename(process.execPath)
   // 安装器 customInit 负责 taskkill 旧实例；这里延迟退出避免安装器 exe 本身被占用
-  spawn(installer, ['/S'], { detached: true, stdio: 'ignore' }).unref()
+  const installerProc = spawn(installer, ['/S'], { detached: true, stdio: 'ignore' })
+  installerProc.unref()
+  const installerPid = installerProc.pid
+  if (IS_WIN && installerPid) {
+    const relaunch = path.join(os.tmpdir(), `dsh-relaunch-${Date.now()}.cmd`)
+    const script = [
+      '@echo off',
+      // 按 PID 轮询安装器直到退出，再等文件落盘稳定后拉起新版。
+      // 上限 150 次（约 5 分钟）防 PID 复用/安装挂死导致脚本永驻。
+      'setlocal',
+      `set "INSTPID=${installerPid}"`,
+      'set /a TRIES=0',
+      ':wait',
+      'ping -n 3 127.0.0.1 >nul',
+      'set /a TRIES+=1',
+      'if %TRIES% GEQ 150 goto launch',
+      'tasklist /fi "pid eq %INSTPID%" 2>nul | find /i " %INSTPID% " >nul',
+      'if not errorlevel 1 goto wait',
+      ':launch',
+      'ping -n 4 127.0.0.1 >nul',
+      `cd /d "${installDir}"`,
+      `start "" "${path.join(installDir, exeName)}" --updated`,
+      'del "%~f0"',
+    ].join('\r\n')
+    try {
+      fs.writeFileSync(relaunch, script, 'utf8')
+      spawn(relaunch, [], { detached: true, stdio: 'ignore', windowsHide: true, shell: true }).unref()
+      log(`已安排安装完成后拉起新版：${path.join(installDir, exeName)}（安装器 pid=${installerPid}）`)
+    } catch (err) {
+      log(`安排自动拉起失败（安装仍会继续，需手动启动）：${err.message}`)
+    }
+  } else if (!IS_WIN) {
+    log('非 Windows 平台暂不支持壳内一键安装，请手动下载 DMG/ZIP')
+  }
   setTimeout(() => app.exit(0), 1200)
   return { ok: true }
 }
